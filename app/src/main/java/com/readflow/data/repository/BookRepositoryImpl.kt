@@ -1,6 +1,7 @@
 package com.readflow.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.readflow.data.database.BookDao
 import com.readflow.data.database.ProgressDao
 import com.readflow.data.mapper.toDomain
@@ -105,21 +106,32 @@ class BookRepositoryImpl @Inject constructor(
     // ── Helpers ──────────────────────────────────────────
 
     private suspend fun openPublication(epubFile: File) =
-        retriever
-            .retrieve(epubFile, FormatHints())
-            .getOrNull()
-            ?.let { asset ->
-                opener.open(
+        try {
+            Log.d("BookRepo", "Opening EPUB: ${epubFile.absolutePath} (exists=${epubFile.exists()}, size=${epubFile.length()})")
+            val asset = retriever
+                .retrieve(epubFile, FormatHints())
+                .getOrNull()
+            Log.d("BookRepo", "Asset retrieved: ${asset != null}")
+            if (asset != null) {
+                val pub = opener.open(
                     asset,
                     "",
                     false,
                     {},
                     object : WarningLogger {
-                        override fun log(warning: org.readium.r2.shared.util.logging.Warning) {}
+                        override fun log(warning: org.readium.r2.shared.util.logging.Warning) {
+                            Log.w("BookRepo", "Readium: $warning")
+                        }
                     }
                 ).getOrNull()
-            }
-            ?: throw IllegalStateException("Impossible d'ouvrir l'EPUB")
+                Log.d("BookRepo", "Publication opened: ${pub != null}")
+                pub
+            } else null
+        } catch (e: Exception) {
+            Log.e("BookRepo", "Error opening EPUB", e)
+            throw e
+        }
+        ?: throw IllegalStateException("Impossible d'ouvrir l'EPUB")
 
     private fun extractHtml(epubFile: File, href: String): String {
         return try {

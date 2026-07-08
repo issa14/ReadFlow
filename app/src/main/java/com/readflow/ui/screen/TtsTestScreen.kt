@@ -3,6 +3,10 @@ package com.readflow.ui.screen
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,7 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.readflow.domain.model.Book
+import com.readflow.domain.model.Chapter
 import com.readflow.domain.model.SynthesisResult
+import com.readflow.domain.repository.BookRepository
 import com.readflow.service.onnx.OnnxInferenceService
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -38,6 +45,7 @@ fun TtsTestScreen() {
         )
     }
     val inferenceService = remember { entryPoint.onnxInferenceService() }
+    val bookRepository = remember { entryPoint.bookRepository() }
 
     var texte by remember { mutableStateOf("Bonjour, bienvenue dans ReadFlow.") }
     var vitesse by remember { mutableFloatStateOf(1.0f) }
@@ -88,6 +96,70 @@ fun TtsTestScreen() {
             enabled = !initialized && !loading
         ) {
             Text(if (loading) "Chargement..." else "1. Initialiser le moteur")
+        }
+
+        // ── EPUB import ──────────────────────────────
+        var importedBook by remember { mutableStateOf<Book?>(null) }
+        var chapter by remember { mutableStateOf<Chapter?>(null) }
+        var importError by remember { mutableStateOf<String?>(null) }
+        var importing by remember { mutableStateOf(false) }
+
+        val epubPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            scope.launch {
+                importing = true; importError = null
+                try {
+                    // Résoudre le nom réel du fichier (pas le path SAF)
+                    val fileName = resolveFileName(uri, context) ?: "livre.epub"
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val book = withContext(Dispatchers.IO) {
+                            bookRepository.importEpub(stream, fileName)
+                        }
+                        importedBook = book
+                        val chap = withContext(Dispatchers.IO) {
+                            bookRepository.getChapter(book.id, 0)
+                        }
+                        chapter = chap
+                    }
+                } catch (e: Exception) {
+                    importError = e.message
+                    importedBook = null; chapter = null
+                }
+                importing = false
+            }
+        }
+
+        Button(
+            onClick = { epubPicker.launch(arrayOf("application/epub+zip")) },
+            enabled = !importing
+        ) {
+            Text(if (importing) "⏳ Import..." else "📖 Importer un EPUB de test")
+        }
+
+        importedBook?.let { book ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("📕 ${book.title}", style = MaterialTheme.typography.titleSmall)
+                    Text("Auteur : ${book.author}")
+                    Text("Chapitres : ${book.totalChapters}")
+                    Text("Langue : ${book.language}")
+                    chapter?.let { ch ->
+                        Text("Phrases extraites : ${ch.sentences.size}", color = MaterialTheme.colorScheme.primary)
+                        if (ch.sentences.isNotEmpty()) {
+                            Text("1ère phrase : \"${ch.sentences.first().text.take(80)}...\"",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+
+        importError?.let {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Text("❌ $it", modifier = Modifier.padding(12.dp))
+            }
         }
 
         if (initialized) {
@@ -332,6 +404,18 @@ fun TtsTestScreen() {
 @InstallIn(SingletonComponent::class)
 interface OnnxInferenceServiceEntryPoint {
     fun onnxInferenceService(): OnnxInferenceService
+    fun bookRepository(): BookRepository
+}
+
+/** Résout le vrai nom du fichier à partir d'une URI SAF. */
+private fun resolveFileName(uri: Uri, context: android.content.Context): String? {
+    val cursor = context.contentResolver.query(uri, null, null, null, null)
+    return cursor?.use {
+        if (it.moveToFirst()) {
+            val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0) it.getString(index) else null
+        } else null
+    }
 }
 
 /** Joue des échantillons PCM float via AudioTrack. */
