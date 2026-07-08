@@ -153,6 +153,19 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /** Import depuis un fichier local (explorateur FilesScreen). */
+    fun importFile(inputStream: java.io.InputStream, fileName: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                bookRepository.importEpub(inputStream, fileName)
+                loadBooks()
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message, isLoading = false) }
+            }
+        }
+    }
+
     fun refresh() = loadBooks()
     fun clearError() { _uiState.update { it.copy(error = null) } }
 

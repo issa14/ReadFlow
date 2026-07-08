@@ -103,8 +103,15 @@ fun LibraryScreen(
                             if (recent.isEmpty()) EmptyView() else ShelfGrid(recent, onBookClick)
                         }
                         NavigationDestination.FILES -> {
-                            // Placeholder gestionnaire de fichiers
-                            FilesPlaceholder()
+                            FilesScreen(
+                                onFileSelected = { file ->
+                                    file.inputStream().use { stream ->
+                                        viewModel.importFile(stream, file.name)
+                                    }
+                                    viewModel.navigateTo(NavigationDestination.LIBRARY)
+                                },
+                                onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
+                            )
                         }
                         NavigationDestination.OPDS,
                         NavigationDestination.BOOKMARKS -> {
@@ -901,18 +908,6 @@ private fun ErrorBanner(error: String, onDismiss: () -> Unit) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("❌ $error", color = Color(0xFFFF6B6B), modifier = Modifier.weight(1f), fontSize = 13.sp)
             TextButton(onClick = onDismiss) { Text("OK") }
-        }
-    }
-}
-
-@Composable
-private fun FilesPlaceholder() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.Folder, null, Modifier.size(64.dp), tint = TextMuted.copy(alpha = 0.3f))
-            Spacer(Modifier.height(12.dp))
-            Text("Gestionnaire de fichiers", color = TextMuted, fontSize = 16.sp)
-            Text("Importez vos EPUB via le menu ⋮", color = TextMuted.copy(alpha = 0.5f), fontSize = 13.sp)
         }
     }
 }
