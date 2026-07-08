@@ -103,18 +103,17 @@ class ReaderViewModel @Inject constructor(
         if (idx < book.totalChapters) loadChapter(idx)
     }
 
-    fun play() {
+    fun play(voice: Int = 0, speed: Float = 1.0f) {
         val chapter = _uiState.value.currentChapter ?: return
         val book = currentBook ?: return
 
-        // Démarrer le service foreground
         val intent = Intent(context, AudioPlaybackService::class.java)
         ContextCompat.startForegroundService(context, intent)
 
         orchestrator.play(
             chapter.sentences,
-            voice = 0,
-            speed = 1.0f,
+            voice = voice,
+            speed = speed,
             bookTitle = book.title,
             chapterTitle = chapter.title
         )
