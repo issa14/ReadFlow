@@ -149,7 +149,10 @@ class BookRepositoryImpl @Inject constructor(
                     ""
                 }
             }
-        } catch (e: Exception) { "" }
+        } catch (e: Exception) {
+            Log.e("BookRepo", "Error extracting HTML for href=$href", e)
+            ""
+        }
     }
 
     private fun stripHtml(html: String) = html

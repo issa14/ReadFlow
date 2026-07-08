@@ -71,7 +71,25 @@ class GaplessAudioPlayer @Inject constructor() {
     fun play() {
         if (_state.value == State.Playing) return
         _state.value = State.Playing
+        completedCount = 0
+        startLoop()
+    }
 
+    /** Met en pause. */
+    fun pause() {
+        _state.value = State.Paused
+        track?.pause()
+    }
+
+    /** Reprend après pause (conserve completedCount). */
+    fun resume() {
+        _state.value = State.Playing
+        track?.play()
+        startLoop()
+    }
+
+    private fun startLoop() {
+        job?.cancel()
         job = scope.launch {
             ensureTrack()
 
@@ -82,24 +100,10 @@ class GaplessAudioPlayer @Inject constructor() {
                     completedCount++
                     Log.d(TAG, "completed=$completedCount, pending=${queue.size}")
                 } else {
-                    // File vide — attend sans s'arrêter
                     delay(50)
                 }
             }
         }
-    }
-
-    /** Met en pause. */
-    fun pause() {
-        _state.value = State.Paused
-        track?.pause()
-    }
-
-    /** Reprend après pause. */
-    fun resume() {
-        _state.value = State.Playing
-        track?.play()
-        play()
     }
 
     /** Arrête tout et vide la file. */

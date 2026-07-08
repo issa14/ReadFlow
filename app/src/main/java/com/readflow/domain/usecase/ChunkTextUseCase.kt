@@ -17,20 +17,21 @@ class ChunkTextUseCase @Inject constructor() {
         val sentences = FrenchSentenceSplitter.split(text)
 
         // Sous-découpage des phrases trop longues
+        var globalIdx = 0
         return sentences.flatMap { sentence ->
             if (sentence.text.length > MAX_SENTENCE_LENGTH) {
                 sentence.text.split(Regex("(?<=,)\\s+"))
                     .mapIndexed { i, part ->
                         val s = part.trim()
                         Sentence(
-                            index = sentence.index,
+                            index = globalIdx++,
                             text = s,
-                            startOffset = sentence.startOffset,
-                            endOffset = sentence.endOffset
+                            startOffset = sentence.startOffset + i,
+                            endOffset = sentence.startOffset + i + s.length
                         )
                     }
             } else {
-                listOf(sentence)
+                listOf(sentence.copy(index = globalIdx++))
             }
         }
     }

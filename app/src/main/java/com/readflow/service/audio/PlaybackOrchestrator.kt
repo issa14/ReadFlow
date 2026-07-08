@@ -47,6 +47,7 @@ class PlaybackOrchestrator @Inject constructor(
     @Volatile var currentSpeed: Float = 1.0f
 
     private var currentJob: Job? = null
+    @Volatile private var playGeneration: Long = 0L  // prévient les races Stop/Play
 
     fun play(
         sentences: List<Sentence>,
@@ -68,6 +69,7 @@ class PlaybackOrchestrator @Inject constructor(
         _progress.value = Progress(startFrom, total, sentences.getOrNull(startFrom))
         _state.value = State.Playing
 
+        val myGeneration = ++playGeneration
         currentJob = scope.launch {
             try {
                 // Channel pour recevoir les résultats de synthèse
@@ -119,16 +121,16 @@ class PlaybackOrchestrator @Inject constructor(
                     delay(200)
                 }
                 delay(300)
-                _state.value = State.Idle
+                if (playGeneration == myGeneration) _state.value = State.Idle
                 player.stop()
                 fillJob.cancel()
 
             } catch (e: CancellationException) {
                 player.stop()
-                _state.value = State.Idle
+                if (playGeneration == myGeneration) _state.value = State.Idle
             } catch (e: Exception) {
                 Log.e(TAG, "Playback error", e)
-                _state.value = State.Error(e.message ?: "Erreur")
+                if (playGeneration == myGeneration) _state.value = State.Error(e.message ?: "Erreur")
                 player.stop()
             }
         }
