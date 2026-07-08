@@ -31,6 +31,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.em
 import com.readflow.domain.model.Chapter
 
 // ─────────────────────────────────────────────────────
@@ -68,10 +72,17 @@ fun ReaderScreen(
         }
     }
 
+    // Couleurs selon le thème
+    val (bgColor, textColor, accentColor) = when (state.readerTheme) {
+        ReaderTheme.NIGHT -> Triple(Color(0xFF0D0D0D), Color.White, Color(0xFFFFB74D))
+        ReaderTheme.DAY -> Triple(Color(0xFFFAFAFA), Color(0xFF1A1A1A), Color(0xFF0091EA))
+        ReaderTheme.SEPIA -> Triple(Color(0xFFF4ECD8), Color(0xFF3C2F2F), Color(0xFFB65D30))
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D0D0D))
+            .background(bgColor)
     ) {
         // ── COUCHE 0 : Texte immersif ─────────────────
         when {
@@ -81,7 +92,9 @@ fun ReaderScreen(
                 chapter = chapter,
                 currentSentenceIndex = state.currentSentenceIndex,
                 isPlaying = state.isPlaying,
-                onTap = { viewModel.toggleHud() }
+                onTap = { viewModel.toggleHud() },
+                textColor = textColor,
+                accentColor = accentColor
             )
         }
 
@@ -96,7 +109,8 @@ fun ReaderScreen(
                 title = book?.title ?: "",
                 subtitle = "Ch. ${state.currentChapterIndex + 1}/${book?.totalChapters ?: 0}",
                 onBack = onBack,
-                onToc = { viewModel.showTocSheet() }
+                onToc = { viewModel.showTocSheet() },
+                onThemeCycle = { viewModel.cycleTheme() }
             )
         }
 
@@ -213,7 +227,8 @@ private fun ReaderTopBar(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
-    onToc: () -> Unit
+    onToc: () -> Unit,
+    onThemeCycle: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -243,6 +258,10 @@ private fun ReaderTopBar(
             @Suppress("DEPRECATION")
             IconButton(onClick = onToc) {
                 Icon(Icons.Default.List, "TOC",
+                    tint = Color.White.copy(alpha = 0.6f))
+            }
+            IconButton(onClick = onThemeCycle) {
+                Icon(Icons.Default.Palette, "Thème",
                     tint = Color.White.copy(alpha = 0.6f))
             }
         }
@@ -311,52 +330,52 @@ private fun ImmersiveText(
     chapter: Chapter,
     currentSentenceIndex: Int,
     isPlaying: Boolean,
-    onTap: () -> Unit
+    onTap: () -> Unit,
+    textColor: Color,
+    accentColor: Color
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            // pointerInput en PREMIER (inner), verticalScroll en DERNIER (outer)
-            // → scroll reçoit les événements en priorité, tap détecté sans bloquer
-            .pointerInput(Unit) {
-                detectTapGestures { onTap() }
-            }
-            .verticalScroll(rememberScrollState())
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .padding(horizontal = 20.dp)
-    ) {
-        Spacer(Modifier.height(16.dp))
+    SelectionContainer {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) { detectTapGestures { onTap() } }
+                .verticalScroll(rememberScrollState())
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+        ) {
+            Spacer(Modifier.height(24.dp))
 
-        // Titre du chapitre
-        Text(
-            chapter.title,
-            style = MaterialTheme.typography.headlineSmall.copy(
-                color = Color.White.copy(alpha = 0.7f),
-                fontWeight = FontWeight.Bold,
-                fontSize = 21.sp
-            )
-        )
-        Spacer(Modifier.height(24.dp))
-
-        // Phrases
-        chapter.sentences.forEachIndexed { index, sentence ->
-            val highlighted = index == currentSentenceIndex && isPlaying
+            // Titre
             Text(
-                text = sentence.text,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    color = when {
-                        highlighted -> Color(0xFFFFB74D)
-                        else -> Color.White.copy(alpha = 0.82f)
-                    },
-                    fontSize = 17.sp,
-                    lineHeight = 28.sp,
-                    fontWeight = if (highlighted) FontWeight.Medium else FontWeight.Normal
-                ),
-                modifier = Modifier.padding(vertical = 1.dp)
+                chapter.title,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
+                color = textColor.copy(alpha = 0.75f),
+                lineHeight = 1.6.em
             )
-        }
+            Spacer(Modifier.height(28.dp))
 
-        Spacer(Modifier.height(120.dp))
+            // Phrases
+            chapter.sentences.forEachIndexed { index, sentence ->
+                val highlighted = index == currentSentenceIndex && isPlaying
+                Text(
+                    text = sentence.text,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = if (highlighted) FontWeight.Medium else FontWeight.Normal,
+                    fontSize = 17.sp,
+                    lineHeight = 1.6.em,
+                    textAlign = TextAlign.Justify,
+                    color = when {
+                        highlighted -> accentColor
+                        else -> textColor.copy(alpha = 0.88f)
+                    },
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
+
+            Spacer(Modifier.height(120.dp))
+        }
     }
 }
 

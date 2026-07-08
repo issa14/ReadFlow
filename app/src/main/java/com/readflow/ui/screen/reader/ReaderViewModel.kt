@@ -34,8 +34,11 @@ data class ReaderUiState(
     val isTtsSheetVisible: Boolean = false,
     val isTocSheetVisible: Boolean = false,
     val speed: Float = 1.0f,
-    val voice: Int = 0
+    val voice: Int = 0,
+    val readerTheme: ReaderTheme = ReaderTheme.NIGHT
 )
+
+enum class ReaderTheme { DAY, NIGHT, SEPIA }
 
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
@@ -61,6 +64,16 @@ class ReaderViewModel @Inject constructor(
     fun hideTocSheet() { _uiState.update { it.copy(isTocSheetVisible = false) } }
     fun setSpeed(s: Float) { _uiState.update { it.copy(speed = s.coerceIn(0.5f, 2.0f)) } }
     fun setVoice(v: Int) { _uiState.update { it.copy(voice = v.coerceIn(0, 1)) } }
+
+    fun cycleTheme() {
+        val next = when (_uiState.value.readerTheme) {
+            ReaderTheme.NIGHT -> ReaderTheme.SEPIA
+            ReaderTheme.SEPIA -> ReaderTheme.DAY
+            ReaderTheme.DAY -> ReaderTheme.NIGHT
+        }
+        _uiState.update { it.copy(readerTheme = next) }
+    }
+    fun setTheme(theme: ReaderTheme) { _uiState.update { it.copy(readerTheme = theme) } }
 
     init {
         // P1: Initialiser le moteur TTS silencieusement dès l'ouverture du lecteur
