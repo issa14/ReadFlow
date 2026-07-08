@@ -20,6 +20,7 @@ import com.readflow.domain.model.Book
 import com.readflow.domain.model.Chapter
 import com.readflow.domain.model.SynthesisResult
 import com.readflow.domain.repository.BookRepository
+import com.readflow.service.audio.PlaybackOrchestrator
 import com.readflow.service.onnx.OnnxInferenceService
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -46,6 +47,7 @@ fun TtsTestScreen() {
     }
     val inferenceService = remember { entryPoint.onnxInferenceService() }
     val bookRepository = remember { entryPoint.bookRepository() }
+    val orchestrator = remember { entryPoint.playbackOrchestrator() }
 
     var texte by remember { mutableStateOf("Bonjour, bienvenue dans ReadFlow.") }
     var vitesse by remember { mutableFloatStateOf(1.0f) }
@@ -150,6 +152,17 @@ fun TtsTestScreen() {
                         if (ch.sentences.isNotEmpty()) {
                             Text("1ère phrase : \"${ch.sentences.first().text.take(80)}...\"",
                                 style = MaterialTheme.typography.bodySmall)
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        inferenceService.initialize()
+                                        orchestrator.play(ch.sentences, voixIndex, vitesse)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("▶ Lire le chapitre")
+                            }
                         }
                     }
                 }
@@ -405,6 +418,7 @@ fun TtsTestScreen() {
 interface OnnxInferenceServiceEntryPoint {
     fun onnxInferenceService(): OnnxInferenceService
     fun bookRepository(): BookRepository
+    fun playbackOrchestrator(): PlaybackOrchestrator
 }
 
 /** Résout le vrai nom du fichier à partir d'une URI SAF. */
