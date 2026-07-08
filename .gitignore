@@ -45,8 +45,11 @@ GoogleService-Info.plist
 
 # ---- Model files (large binaries) ----
 # Models are downloaded at runtime, not stored in repo
-app/src/main/assets/models/*.onnx
+app/src/main/assets/models/
 *.onnx
+
+# ---- AAR files (large binaries, downloaded from GitHub) ----
+app/libs/*.aar
 
 # ---- Test outputs ----
 app/build/
@@ -59,3 +62,4 @@ captures/
 *.tmp
 *.bak
 node_modules/
+.kotlin/

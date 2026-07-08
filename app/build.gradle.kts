@@ -104,8 +104,8 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.exoplayer)
 
-    // --- ONNX Runtime ---
-    implementation(libs.onnxruntime.android)
+    // --- Sherpa-ONNX (TTS engine, includes ONNX Runtime) ---
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
 
     // --- Coroutines ---
     implementation(libs.kotlinx.coroutines.android)
