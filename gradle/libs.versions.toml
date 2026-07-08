@@ -27,7 +27,7 @@ room = "2.6.1"
 media3 = "1.4.1"
 
 # ONNX Runtime
-onnxruntime = "1.18.1"
+onnxruntime = "1.19.2"
 
 # Coroutines
 coroutines = "1.9.0"

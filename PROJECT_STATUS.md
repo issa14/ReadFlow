@@ -1,8 +1,8 @@
 # 📊 ReadFlow — Suivi d'Avancement Projet
 
-> Dernière mise à jour : 2026-07-07  
+> Dernière mise à jour : 2026-07-08  
 > Phase actuelle : **Phase 0 — Préparation & Prototype**  
-> Progression globale : **0%**
+> Progression globale : **5%**
 
 ---
 
@@ -25,8 +25,8 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 | 0.1 | Créer repo GitHub + README | ✅ Fait | 🔴 | — | — |
 | 0.2 | Rédiger `PROJECT_STATUS.md` | ✅ Fait | 🔴 | — | Ce document |
 | 0.3 | Rédiger `architecture.md` | ✅ Fait | 🔴 | — | Auditée et corrigée |
-| 0.4 | Scaffold projet Android (Gradle, Hilt, Room, Compose) | ⬜ À faire | 🔴 | — | Structure sans code métier |
-| 0.5 | Configurer Version Catalog (`libs.versions.toml`) | ⬜ À faire | 🔴 | — | Toutes les dépendances |
+| 0.4 | Scaffold projet Android (Gradle, Hilt, Room, Compose) | ✅ Fait | 🔴 | — | Build OK — app-debug.apk (38 Mo) |
+| 0.5 | Configurer Version Catalog (`libs.versions.toml`) | ✅ Fait | 🔴 | — | Compose, Hilt, Room, Media3, ONNX Runtime |
 | 0.6 | Prototyper Sherpa-ONNX sur 1 device Android | ⬜ À faire | 🔴 | — | Test timestamps natifs |
 | 0.7 | Valider phonémisation FR (liaisons, muets) | ⬜ À faire | 🔴 | — | 10 phrases test |
 | 0.8 | Mesurer RTF sur Snapdragon / MediaTek / Tensor | ⬜ À faire | 🟡 | — | Firebase Test Lab ou devices physiques |
