@@ -1,8 +1,8 @@
 # 📊 ReadFlow — Suivi d'Avancement Projet
 
 > Dernière mise à jour : 2026-07-08  
-> Phase actuelle : **Phase 1 — Fondations & Validation ONNX**  
-> Progression globale : **10%**
+> Phase actuelle : **Phase 2 — Parsing EPUB & Pipeline Audio**  
+> Progression globale : **20%**
 
 ---
 
