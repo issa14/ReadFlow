@@ -13,6 +13,7 @@ import com.readflow.domain.model.Chapter
 import com.readflow.domain.repository.BookRepository
 import com.readflow.service.audio.AudioPlaybackService
 import com.readflow.service.audio.PlaybackOrchestrator
+import com.readflow.service.onnx.OnnxInferenceService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
@@ -33,6 +34,7 @@ data class ReaderUiState(
 class ReaderViewModel @Inject constructor(
     private val bookRepository: BookRepository,
     private val orchestrator: PlaybackOrchestrator,
+    private val onnxService: OnnxInferenceService,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -40,6 +42,7 @@ class ReaderViewModel @Inject constructor(
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     private var currentBook: Book? = null
+    private var isPausedForResume = false  // P2: true si on a fait Pause (pas Stop)
 
     /** Vitesse TTS courante (0.5..2.0). Exposée pour le slider. */
     var currentSpeed: Float = 1.0f
@@ -53,11 +56,21 @@ class ReaderViewModel @Inject constructor(
     fun setVoice(voice: Int) { currentVoice = voice.coerceIn(0, 1) }
 
     init {
+        // P1: Initialiser le moteur TTS silencieusement dès l'ouverture du lecteur
+        viewModelScope.launch {
+            onnxService.initialize()
+        }
+
         // Observer l'orchestrateur pour synchroniser l'UI
         viewModelScope.launch {
             orchestrator.state.collect { state ->
-                _uiState.update {
-                    it.copy(isPlaying = state is PlaybackOrchestrator.State.Playing)
+                val wasPlaying = _uiState.value.isPlaying
+                val nowPlaying = state is PlaybackOrchestrator.State.Playing
+                _uiState.update { it.copy(isPlaying = nowPlaying) }
+
+                // P3: Fin naturelle → chapitre suivant automatique
+                if (wasPlaying && state is PlaybackOrchestrator.State.Idle && !isPausedForResume) {
+                    autoAdvanceIfAtEnd()
                 }
             }
         }
@@ -126,7 +139,6 @@ class ReaderViewModel @Inject constructor(
         val chapter = _uiState.value.currentChapter ?: return
         val book = currentBook ?: return
 
-        // Vérifier la permission notification (Android 13+)
         if (Build.VERSION.SDK_INT >= 33) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -139,10 +151,15 @@ class ReaderViewModel @Inject constructor(
         val intent = Intent(context, AudioPlaybackService::class.java)
         ContextCompat.startForegroundService(context, intent)
 
+        // P2: Reprendre à la phrase sauvegardée (Pause) ou démarrer du début (Stop/Idle)
+        val startFrom = if (isPausedForResume) _uiState.value.currentSentenceIndex else 0
+        isPausedForResume = false
+
         orchestrator.play(
             chapter.sentences,
             voice = currentVoice,
             speed = currentSpeed,
+            startFrom = startFrom,
             bookTitle = book.title,
             chapterTitle = chapter.title
         )
@@ -150,13 +167,30 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun pause() {
+        isPausedForResume = true  // P2: mémoriser la position pour reprise
         orchestrator.pause()
         _uiState.update { it.copy(isPlaying = false) }
     }
 
     fun stop() {
+        isPausedForResume = false  // P2: stop = réinitialisation complète
         orchestrator.stop()
         _uiState.update { it.copy(isPlaying = false, currentSentenceIndex = 0) }
+    }
+
+    // P3: Avancer automatiquement au chapitre suivant si on est à la dernière phrase
+    private fun autoAdvanceIfAtEnd() {
+        val book = currentBook ?: return
+        val chapter = _uiState.value.currentChapter ?: return
+        val lastIdx = chapter.sentences.lastIndex
+        val currentIdx = _uiState.value.currentSentenceIndex
+
+        if (currentIdx >= lastIdx) {
+            val next = _uiState.value.currentChapterIndex + 1
+            if (next < book.totalChapters) {
+                loadChapter(next)
+            }
+        }
     }
 
     fun clearError() {
