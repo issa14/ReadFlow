@@ -38,6 +38,7 @@ import com.readflow.ui.screen.library.FilterMode
 import com.readflow.ui.screen.library.SortOrder
 import com.readflow.ui.screen.library.FilterType
 import com.readflow.ui.screen.library.LayoutMode
+import com.readflow.ui.screen.library.NavigationDestination
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,10 +89,27 @@ fun LibraryScreen(
                         ErrorBanner(err, viewModel::clearError)
                     }
 
-                    when {
-                        state.isLoading && state.books.isEmpty() -> LoadingView()
-                        state.books.isEmpty() && !state.isLoading -> EmptyView()
-                        else -> ShelfGrid(state.books, onBookClick)
+                    when (state.currentDestination) {
+                        NavigationDestination.LIBRARY -> {
+                            when {
+                                state.isLoading && state.books.isEmpty() -> LoadingView()
+                                state.books.isEmpty() && !state.isLoading -> EmptyView()
+                                else -> ShelfGrid(state.books, onBookClick)
+                            }
+                        }
+                        NavigationDestination.RECENTS -> {
+                            // Livres récents (triés par date)
+                            val recent = state.allBooks.sortedByDescending { it.addedAt }
+                            if (recent.isEmpty()) EmptyView() else ShelfGrid(recent, onBookClick)
+                        }
+                        NavigationDestination.FILES -> {
+                            // Placeholder gestionnaire de fichiers
+                            FilesPlaceholder()
+                        }
+                        NavigationDestination.OPDS,
+                        NavigationDestination.BOOKMARKS -> {
+                            ComingSoonPlaceholder(state.currentDestination.label)
+                        }
                     }
                 }
             }
@@ -133,7 +151,13 @@ fun LibraryScreen(
         }
         NavDrawer(
             visible = showDrawer,
+            currentDest = state.currentDestination,
             onDismiss = { showDrawer = false },
+            onNavigate = { dest ->
+                viewModel.navigateTo(dest)
+                showDrawer = false
+            },
+            onThemeToggle = { viewModel.toggleTheme() },
             onDebug = onDebugClick
         )
 
@@ -715,7 +739,10 @@ private fun DrawerOverlay(onDismiss: () -> Unit) {
 @Composable
 private fun NavDrawer(
     visible: Boolean,
+    currentDest: NavigationDestination,
     onDismiss: () -> Unit,
+    onNavigate: (NavigationDestination) -> Unit,
+    onThemeToggle: () -> Unit,
     onDebug: () -> Unit
 ) {
     AnimatedVisibility(
@@ -743,13 +770,34 @@ private fun NavDrawer(
                         fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 }
 
-                // Menu items
+                // Menu items dynamiques
                 Column(modifier = Modifier.weight(1f)) {
-                    DrawerItem("Liste des récents", Icons.Default.Schedule)
-                    DrawerItem("Bibliothèque", Icons.Default.Book, active = true)
-                    DrawerItem("Fichiers", Icons.Default.Folder)
-                    DrawerItem("Catalogues OPDS", Icons.Default.Language)
-                    DrawerItem("Marque-pages et notes", Icons.Default.Bookmark)
+                    NavigationDestination.entries.forEach { dest ->
+                        val isActive = dest == currentDest
+                        Surface(
+                            color = if (isActive) Color(0xFFE8F0FE) else Color.Transparent,
+                            onClick = { onNavigate(dest) }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    dest.icon, null,
+                                    tint = if (isActive) AccentBlue else Color(0xFF757575),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(24.dp))
+                                Text(
+                                    dest.label, fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isActive) AccentBlue else Color(0xFF444444)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Footer
@@ -759,35 +807,17 @@ private fun NavDrawer(
                             .fillMaxWidth()
                             .height(60.dp)
                             .padding(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DrawerFooterBtn("Options", Icons.Default.Settings, onDismiss)
-                        DrawerFooterBtn("À propos", Icons.Default.Info, onDismiss)
-                        DrawerFooterBtn("Thème", Icons.Default.DarkMode, onDismiss)
+                        DrawerFooterBtn("Options", Icons.Default.Settings) { onDismiss() }
+                        DrawerFooterBtn("À propos", Icons.Default.Info) { onDismiss() }
+                        DrawerFooterBtn("Thème", Icons.Default.DarkMode) { onThemeToggle() }
                         DrawerFooterBtn("Debug", Icons.Default.Build) { onDismiss(); onDebug() }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DrawerItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
-                        active: Boolean = false) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (active) Modifier.background(Color(0xFFE8F0FE)) else Modifier)
-            .clickable { }
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, tint = if (active) AccentBlue else Color(0xFF757575),
-            modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(24.dp))
-        Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-            color = if (active) AccentBlue else Color(0xFF444444))
     }
 }
 
@@ -871,6 +901,30 @@ private fun ErrorBanner(error: String, onDismiss: () -> Unit) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("❌ $error", color = Color(0xFFFF6B6B), modifier = Modifier.weight(1f), fontSize = 13.sp)
             TextButton(onClick = onDismiss) { Text("OK") }
+        }
+    }
+}
+
+@Composable
+private fun FilesPlaceholder() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Folder, null, Modifier.size(64.dp), tint = TextMuted.copy(alpha = 0.3f))
+            Spacer(Modifier.height(12.dp))
+            Text("Gestionnaire de fichiers", color = TextMuted, fontSize = 16.sp)
+            Text("Importez vos EPUB via le menu ⋮", color = TextMuted.copy(alpha = 0.5f), fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun ComingSoonPlaceholder(label: String) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Construction, null, Modifier.size(48.dp), tint = TextMuted.copy(alpha = 0.3f))
+            Spacer(Modifier.height(12.dp))
+            Text(label, color = TextMuted, fontSize = 16.sp)
+            Text("Bientôt disponible", color = TextMuted.copy(alpha = 0.5f), fontSize = 13.sp)
         }
     }
 }

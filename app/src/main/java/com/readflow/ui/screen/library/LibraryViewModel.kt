@@ -3,6 +3,9 @@ package com.readflow.ui.screen.library
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.readflow.domain.model.Book
@@ -23,13 +26,26 @@ data class LibraryUiState(
     val sortOrder: SortOrder = SortOrder.TITLE,
     val filterType: FilterType = FilterType.ALL,
     val layoutMode: LayoutMode = LayoutMode.GRID_COVERS,
-    val isFilterDialogVisible: Boolean = false
+    val isFilterDialogVisible: Boolean = false,
+    val currentDestination: NavigationDestination = NavigationDestination.LIBRARY,
+    val isDarkTheme: Boolean = true
 )
 
 enum class FilterMode { ALL, BY_AUTHOR, BY_TITLE, IN_PROGRESS, READ, UNREAD }
 enum class SortOrder(val label: String) { TITLE("Nom de livre"), AUTHOR("Auteur"), DATE("Date d'import"), FOLDERS("Dossiers"), RECENT("Liste des récents") }
 enum class FilterType(val label: String) { ALL("Tous"), UNREAD("Non lu"), IN_PROGRESS("En cours"), READ("Lu") }
 enum class LayoutMode { LIST, GRID, GRID_COVERS }
+
+enum class NavigationDestination(
+    val label: String,
+    val icon: ImageVector
+) {
+    RECENTS("Liste des récents", Icons.Default.Schedule),
+    LIBRARY("Bibliothèque", Icons.Default.Book),
+    FILES("Fichiers", Icons.Default.Folder),
+    OPDS("Catalogues OPDS", Icons.Default.Language),
+    BOOKMARKS("Marque-pages et notes", Icons.Default.Bookmark)
+}
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -80,6 +96,14 @@ class LibraryViewModel @Inject constructor(
 
     fun setLayoutMode(mode: LayoutMode) {
         _uiState.update { it.copy(layoutMode = mode) }
+    }
+
+    fun navigateTo(dest: NavigationDestination) {
+        _uiState.update { it.copy(currentDestination = dest) }
+    }
+
+    fun toggleTheme() {
+        _uiState.update { it.copy(isDarkTheme = !it.isDarkTheme) }
     }
 
     private fun applyFilters() {
