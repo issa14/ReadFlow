@@ -4,8 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
-import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.readflow.domain.model.SynthesisResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -13,13 +13,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Service d'inférence TTS via Sherpa-ONNX / Kokoro int8 multilingue.
+ * Service d'inférence TTS via Sherpa-ONNX / Piper VITS français.
  *
- * Threading : l'instance [OfflineTts] est créée une seule fois (singleton Hilt).
- * La synthèse est appelée depuis [TtsRepositoryImpl] sur [Dispatchers.Default].
- *
- * Modèle : kokoro-int8-multi-lang-v1_0 (110 Mo quantifié, 53 locuteurs, 24 kHz).
- * Phonémisation : KokoroMultiLangLexicon + espeak-ng avec lang="fr" pour le français.
+ * Modèle : vits-piper-fr_FR-miro-high (64 Mo, voix masculine FR haute qualité).
+ * Architecture VITS légère → RTF excellent sur Snapdragon 680.
  */
 @Singleton
 class OnnxInferenceService @Inject constructor(
@@ -27,72 +24,55 @@ class OnnxInferenceService @Inject constructor(
 ) {
     companion object {
         private const val TAG = "OnnxInference"
-
-        // ── Chemins dans assets ──────────────────────
-        private const val ASSET_DIR  = "models/kokoro-multi-lang-v1_0"
-        private const val ONNX_FILE  = "model.onnx"
-        private const val VOICES_BIN = "voices.bin"
+        private const val ASSET_DIR = "models/vits-piper-fr_FR-miro-high"
+        private const val ONNX_FILE  = "fr_FR-miro-high.onnx"
         private const val TOKENS_TXT = "tokens.txt"
-        private const val LEXICON_EN = "lexicon-us-en.txt"
     }
 
-    // ── Singleton OfflineTts ───────────────────────────────────────
     @Volatile private var tts: OfflineTts? = null
 
-    // ── Voix Kokoro ────────────────────────────────────────────────
-    // sid=30 → ff_siwis, la voix française native du modèle Kokoro multi-langue.
-    // Les autres SIDs (0, 3, 6) sont des voix américaines.
+    /** Piper VITS : modèle mono-locuteur français. */
     enum class Voice(val sid: Int, val label: String) {
-        FF_SIWIS (30, "ff_siwis (fr)"),
-        AF_HEART ( 0, "af_heart"),
-        AF_BELLA ( 3, "af_bella"),
-        AF_NICOLE( 6, "af_nicole"),
+        MIRO(0, "Miro (FR high)"),
     }
 
     // ── API publique ───────────────────────────────────────────────
 
-    /** Initialise le moteur Kokoro UNE SEULE FOIS (idempotent). */
     fun initialize() {
         if (tts != null) return
 
         val dataDir = copyEspeakDataToInternal()
 
-        // Positional args: model, voices, tokens, dataDir, lexicon, lang, dictDir, lengthScale
-        val kokoroConfig = OfflineTtsKokoroModelConfig(
-            "$ASSET_DIR/$ONNX_FILE",
-            "$ASSET_DIR/$VOICES_BIN",
-            "$ASSET_DIR/$TOKENS_TXT",
-            dataDir,
-            "$ASSET_DIR/$LEXICON_EN",
-            "fr",
-            "",
-            1.0f
+        val vitsConfig = OfflineTtsVitsModelConfig(
+            model    = "$ASSET_DIR/$ONNX_FILE",
+            tokens   = "$ASSET_DIR/$TOKENS_TXT",
+            dataDir  = dataDir,
+            lexicon  = "",
+            dictDir  = "",
+            noiseScale  = 0.667f,
+            noiseScaleW = 0.8f,
+            lengthScale = 1.0f
         )
 
         val modelConfig = OfflineTtsModelConfig().apply {
-            kokoro = kokoroConfig
-            numThreads = 2   // 2 cœurs Kryo Gold (big.LITTLE: évite les cœurs lents)
-            provider = "cpu" // CPU natif, pas de fallback NNAPI pour Transformer
+            vits = vitsConfig
+            numThreads = 4
+            provider = "cpu"
             debug = true
         }
         val config = OfflineTtsConfig(modelConfig, "", "", 1, 1.0f)
 
         tts = OfflineTts(context.assets, config)
-        Log.i(TAG, "Kokoro initialisé — ${tts!!.numSpeakers()} locuteurs, " +
-                "${tts!!.sampleRate()} Hz, modèle int8")
+        Log.i(TAG, "Piper VITS OK — ${tts!!.numSpeakers()} locuteur, ${tts!!.sampleRate()} Hz")
     }
 
-    /**
-     * Synthèse vocale BLOQUANTE — doit être appelée sur [Dispatchers.Default].
-     * Utilise [GenerationConfig] avec silenceScale=0.2f pour des pauses naturelles.
-     */
     fun synthesize(
         text: String,
-        voice: Voice = Voice.FF_SIWIS,
+        voice: Voice = Voice.MIRO,
         speed: Float = 1.0f
     ): SynthesisResult {
         val engine = tts
-            ?: throw IllegalStateException("TTS non initialisé. Appeler initialize() d'abord.")
+            ?: throw IllegalStateException("TTS non initialisé.")
 
         val cleaned = text.trim()
         val startMs = System.currentTimeMillis()
@@ -101,20 +81,15 @@ class OnnxInferenceService @Inject constructor(
         val durationMs = ((audio.samples.size.toFloat() / audio.sampleRate) * 1000).toLong()
         val rtf = elapsedMs / durationMs.coerceAtLeast(1).toFloat()
 
-        if (rtf > 3.0f) {
-            Log.w(TAG, "RTF élevé: %.2f (\"%s\")".format(rtf, cleaned.take(50)))
-        } else {
-            Log.i(TAG, "\"${cleaned.take(60)}\" → ${audio.samples.size} éch., " +
-                    "${durationMs}ms, RTF=%.2f".format(rtf))
-        }
+        Log.i(TAG, "\"${cleaned.take(60)}\" → ${audio.samples.size} éch., " +
+                "${durationMs}ms, RTF=%.2f".format(rtf))
         return SynthesisResult(audio.samples, audio.sampleRate, cleaned,
             voice.label, elapsedMs, durationMs)
     }
 
     fun release() { tts?.release(); tts = null }
 
-    /** Fréquence d'échantillonnage native du modèle (24000 Hz pour Kokoro). */
-    fun getSampleRate(): Int = tts?.sampleRate() ?: 24000
+    fun getSampleRate(): Int = tts?.sampleRate() ?: 22050
 
     fun isModelAvailable(): Boolean {
         return try {

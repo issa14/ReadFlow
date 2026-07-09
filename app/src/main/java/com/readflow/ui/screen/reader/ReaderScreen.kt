@@ -544,39 +544,9 @@ private fun TtsPanel(
                 style = MaterialTheme.typography.labelSmall)
             Spacer(Modifier.width(12.dp))
             FilterChip(
-                selected = currentVoice == 30,
-                onClick = { onVoiceChange(30) },
-                label = { Text("ff_siwis", style = MaterialTheme.typography.labelSmall) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(0xFFFFB74D).copy(alpha = 0.25f),
-                    selectedLabelColor = Color.White
-                )
-            )
-            Spacer(Modifier.width(6.dp))
-            FilterChip(
                 selected = currentVoice == 0,
                 onClick = { onVoiceChange(0) },
-                label = { Text("af_heart", style = MaterialTheme.typography.labelSmall) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(0xFFFFB74D).copy(alpha = 0.25f),
-                    selectedLabelColor = Color.White
-                )
-            )
-            Spacer(Modifier.width(6.dp))
-            FilterChip(
-                selected = currentVoice == 3,
-                onClick = { onVoiceChange(3) },
-                label = { Text("af_bella", style = MaterialTheme.typography.labelSmall) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(0xFFFFB74D).copy(alpha = 0.25f),
-                    selectedLabelColor = Color.White
-                )
-            )
-            Spacer(Modifier.width(6.dp))
-            FilterChip(
-                selected = currentVoice == 6,
-                onClick = { onVoiceChange(6) },
-                label = { Text("af_nicole", style = MaterialTheme.typography.labelSmall) },
+                label = { Text("Miro FR", style = MaterialTheme.typography.labelSmall) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = Color(0xFFFFB74D).copy(alpha = 0.25f),
                     selectedLabelColor = Color.White

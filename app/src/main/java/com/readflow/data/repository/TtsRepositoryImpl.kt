@@ -21,7 +21,7 @@ class TtsRepositoryImpl @Inject constructor(
         speed: Float
     ): SynthesisResult = withContext(Dispatchers.Default) {
         val voiceEnum = OnnxInferenceService.Voice.entries
-            .find { it.sid == voice } ?: OnnxInferenceService.Voice.FF_SIWIS
+            .find { it.sid == voice } ?: OnnxInferenceService.Voice.MIRO
 
         val key = "${text.trim()}|${voiceEnum.sid}|${"%.2f".format(speed)}"
 
