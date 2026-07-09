@@ -83,16 +83,16 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 
 | # | Tâche | Statut | Priorité | Notes |
 |---|---|---|---|---|
-| 4.1 | Profilage CPU/Batterie (Android Profiler) | ⬜ À faire | 🔴 | — |
-| 4.2 | FTS5 `chapter_content_fts` — recherche in-book | ⬜ À faire | 🔴 | — |
-| 4.3 | Process Death : `SavedStateHandle` + restoration | ⬜ À faire | 🔴 | — |
+| 4.1 | Profilage CPU/Batterie (Android Profiler) | ✅ Fait | 🔴 | RTF ~0.24, RAM ~150 Mo, APK 120 Mo debug / 106 Mo release |
+| 4.2 | FTS5 `sentence_fts` — recherche in-book | ✅ Fait | 🔴 | FTS4 virtual table, SearchScreen avec wildcard MATCH |
+| 4.3 | Process Death : `SavedStateHandle` + restoration | ✅ Fait | 🔴 | Sauvegarde chapter/sentence/voice/theme/font |
 | 4.4 | Gestion EPUB corrompus / erreurs parsing | ⬜ À faire | 🟡 | — |
 | 4.5 | SAF : persistence permissions + réimport | ⬜ À faire | 🟡 | — |
-| 4.6 | ProGuard/R8 config (ONNX + Sherpa + Readium) | ✅ Fait | 🔴 | Règles complètes — build release OK |
+| 4.6 | ProGuard/R8 config (ONNX + Sherpa + Readium) | ✅ Fait | 🔴 | Règles complètes — build release OK (106 Mo) |
 | 4.7 | Backup/Restore données (bookmarks, progrès) | ⬜ À faire | 🟡 | — |
 | 4.8 | Accessibilité : TalkBack, tailles min/max | ⬜ À faire | 🟡 | — |
 | 4.9 | Vérification licences (Sherpa, Readium, ONNX) | ⬜ À faire | 🟡 | — |
-| 4.10 | Build signed APK / AAB release | 🔄 Partiel | 🔴 | Unsigned release OK, keystore à générer |
+| 4.10 | Build signed APK / AAB release | ✅ Fait | 🔴 | Keystore généré, release 106 Mo signé |
 | 4.11 | Beta fermée — 10-20 lecteurs francophones | ⬜ À faire | 🔴 | — |
 | 4.12 | Publication Play Store (internal testing) | ⬜ À faire | 🔴 | — |
 
