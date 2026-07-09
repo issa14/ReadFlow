@@ -119,18 +119,6 @@ class PlaybackOrchestrator @Inject constructor(
     @Volatile var currentVoice: Int = 0
     @Volatile var currentSpeed: Float = 1.0f
 
-    /**
-     * Compensation de latence Bluetooth pour l'autoscroll UI (ms).
-     *
-     * Valeur par défaut 180 ms — calibrée pour des écouteurs Bluetooth
-     * standard (codec SBC/AAC). Ajustable via l'interface utilisateur
-     * pour compenser les décalages propres à certains appareils.
-     *
-     * Thread safety : [@Volatile] car lu depuis l'UI et écrit depuis
-     * le thread de configuration (jamais de conflit d'écriture concurrent).
-     */
-    @Volatile var bluetoothLatencyMs: Long = 180L
-
     // Identité du livre/chapitre en cours, pour la persistance de progression
     @Volatile private var currentBookId: String? = null
     @Volatile private var currentChapterIdx: Int = 0
@@ -285,7 +273,7 @@ class PlaybackOrchestrator @Inject constructor(
         val myGeneration = ++playGeneration
         currentJob = scope.launch {
             try {
-                val buffer = Channel<SynthesisResult>(Channel.UNLIMITED)
+                val buffer = Channel<SynthesisResult>(LOOKAHEAD)
 
                 // Synthétiser la première phrase en priorité (bloquant)
                 val first = ttsRepository.synthesize(sentences[startFrom].text, voice, speed)

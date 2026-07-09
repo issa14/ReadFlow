@@ -40,16 +40,7 @@ data class ReaderUiState(
     val speed: Float = 1.0f,
     val voice: Int = 0,  // MIRO — voix française Piper VITS
     val readerTheme: ReaderTheme = ReaderTheme.NIGHT,
-    val useOpenDyslexic: Boolean = false,
-    /**
-     * Compensation de latence Bluetooth pour le surlignage (ms).
-     *
-     * Valeur par défaut 180 ms, calibrée pour des écouteurs Bluetooth
-     * standard (codec SBC/AAC). Ajustable par l'utilisateur dans les
-     * paramètres de lecture pour les casques à forte latence (LDAC,
-     * certains codecs propriétaires) ou les écouteurs filaires (0 ms).
-     */
-    val bluetoothLatencyMs: Long = 180L
+    val useOpenDyslexic: Boolean = false
 )
 
 enum class ReaderTheme { DAY, NIGHT, SEPIA }
@@ -93,20 +84,6 @@ class ReaderViewModel @Inject constructor(
     fun hideTocSheet() { _uiState.update { it.copy(isTocSheetVisible = false) } }
     fun setSpeed(s: Float) { _uiState.update { it.copy(speed = s.coerceIn(0.5f, 2.0f)) } }
     fun setVoice(v: Int) { _uiState.update { it.copy(voice = v) } }
-
-    /**
-     * Définit la compensation de latence Bluetooth.
-     *
-     * Synchronise immédiatement avec [PlaybackOrchestrator.bluetoothLatencyMs]
-     * pour que l'autoscroll utilise la nouvelle valeur sans redémarrage
-     * de la lecture.
-     */
-    fun setBluetoothLatency(ms: Long) {
-        val clamped = ms.coerceIn(0L, 2000L)
-        orchestrator.bluetoothLatencyMs = clamped
-        _uiState.update { it.copy(bluetoothLatencyMs = clamped) }
-        savedState["bluetoothLatencyMs"] = clamped
-    }
 
     fun cycleTheme() {
         val next = when (_uiState.value.readerTheme) {
@@ -169,14 +146,11 @@ class ReaderViewModel @Inject constructor(
             try { ReaderTheme.valueOf(it) } catch (_: Exception) { null }
         } ?: ReaderTheme.NIGHT
         val savedDyslexic = savedState.get<Boolean>("openDyslexic") ?: false
-        val savedLatency = savedState.get<Long>("bluetoothLatencyMs") ?: 180L
 
         _uiState.update { it.copy(
             speed = savedSpeed, voice = savedVoice,
-            readerTheme = savedTheme, useOpenDyslexic = savedDyslexic,
-            bluetoothLatencyMs = savedLatency
+            readerTheme = savedTheme, useOpenDyslexic = savedDyslexic
         )}
-        orchestrator.bluetoothLatencyMs = savedLatency
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -250,6 +224,25 @@ class ReaderViewModel @Inject constructor(
         val book = currentBook ?: return
         val idx = _uiState.value.currentChapterIndex + 1
         if (idx < book.totalChapters) loadChapter(idx)
+    }
+
+    fun previousSentence() {
+        if (_uiState.value.isPlaying) {
+            orchestrator.seekToPrevious()
+        } else {
+            val prevIdx = (_uiState.value.currentSentenceIndex - 1).coerceAtLeast(0)
+            _uiState.update { it.copy(currentSentenceIndex = prevIdx) }
+        }
+    }
+
+    fun nextSentence() {
+        val maxIdx = (_uiState.value.totalSentences - 1).coerceAtLeast(0)
+        if (_uiState.value.isPlaying) {
+            orchestrator.seekToNext()
+        } else {
+            val nextIdx = (_uiState.value.currentSentenceIndex + 1).coerceAtMost(maxIdx)
+            _uiState.update { it.copy(currentSentenceIndex = nextIdx) }
+        }
     }
 
     fun goToChapter(index: Int) {

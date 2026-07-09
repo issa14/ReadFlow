@@ -41,29 +41,52 @@ class OnnxInferenceService @Inject constructor(
     fun initialize() {
         if (tts != null) return
 
-        val dataDir = copyEspeakDataToInternal()
+        try {
+            // 1. Vérification d'intégrité du modèle ONNX
+            if (!isModelAvailable()) {
+                throw IllegalStateException("Le fichier modèle $ASSET_DIR/$ONNX_FILE est introuvable ou corrompu.")
+            }
+            
+            // 2. Vérification d'intégrité du fichier de tokens
+            try {
+                context.assets.open("$ASSET_DIR/$TOKENS_TXT").use { input ->
+                    if (input.available() <= 0) {
+                        throw IllegalStateException("Le fichier de tokens $TOKENS_TXT est vide.")
+                    }
+                }
+            } catch (e: Exception) {
+                throw IllegalStateException("Le fichier de tokens $TOKENS_TXT est inaccessible ou corrompu : ${e.message}")
+            }
 
-        val vitsConfig = OfflineTtsVitsModelConfig(
-            model    = "$ASSET_DIR/$ONNX_FILE",
-            tokens   = "$ASSET_DIR/$TOKENS_TXT",
-            dataDir  = dataDir,
-            lexicon  = "",
-            dictDir  = "",
-            noiseScale  = 0.667f,
-            noiseScaleW = 0.8f,
-            lengthScale = 1.0f
-        )
+            val dataDir = copyEspeakDataToInternal()
 
-        val modelConfig = OfflineTtsModelConfig().apply {
-            vits = vitsConfig
-            numThreads = 4
-            provider = "cpu"
-            debug = true
+            val vitsConfig = OfflineTtsVitsModelConfig(
+                model    = "$ASSET_DIR/$ONNX_FILE",
+                tokens   = "$ASSET_DIR/$TOKENS_TXT",
+                dataDir  = dataDir,
+                lexicon  = "",
+                dictDir  = "",
+                noiseScale  = 0.667f,
+                noiseScaleW = 0.8f,
+                lengthScale = 1.0f
+            )
+
+            val modelConfig = OfflineTtsModelConfig().apply {
+                vits = vitsConfig
+                numThreads = 4
+                provider = "cpu"
+                debug = true
+            }
+            val config = OfflineTtsConfig(modelConfig, "", "", 1, 1.0f)
+
+            Log.i(TAG, "Tentative d'initialisation du moteur natif OfflineTts...")
+            tts = OfflineTts(context.assets, config)
+            Log.i(TAG, "Piper VITS OK — ${tts!!.numSpeakers()} locuteur, ${tts!!.sampleRate()} Hz")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Erreur fatale lors de l'initialisation du moteur natif Sherpa-ONNX", t)
+            tts = null
+            throw RuntimeException("Erreur de moteur de synthèse vocale natif (ONNX/JNI) : ${t.message}", t)
         }
-        val config = OfflineTtsConfig(modelConfig, "", "", 1, 1.0f)
-
-        tts = OfflineTts(context.assets, config)
-        Log.i(TAG, "Piper VITS OK — ${tts!!.numSpeakers()} locuteur, ${tts!!.sampleRate()} Hz")
     }
 
     fun synthesize(

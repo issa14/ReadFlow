@@ -111,7 +111,6 @@ fun ReaderScreen(
                 textColor = textColor,
                 accentColor = accentColor,
                 useOpenDyslexic = state.useOpenDyslexic,
-                bluetoothLatencyMs = state.bluetoothLatencyMs,
                 onTap = { offset ->
                     // Tiers central uniquement
                     if (screenSize.width > 0) {
@@ -198,14 +197,12 @@ fun ReaderScreen(
                 onPlay = { viewModel.play() },
                 onPause = { viewModel.pause() },
                 onStop = { viewModel.stop() },
-                onPrevious = { /* TODO */ },
-                onNext = { /* TODO */ },
+                onPrevious = { viewModel.previousSentence() },
+                onNext = { viewModel.nextSentence() },
                 onSpeedChange = { viewModel.setSpeed(it) },
                 onVoiceChange = { viewModel.setVoice(it) },
                 currentSpeed = state.speed,
-                currentVoice = state.voice,
-                bluetoothLatencyMs = state.bluetoothLatencyMs,
-                onLatencyChange = { viewModel.setBluetoothLatency(it) }
+                currentVoice = state.voice
             )
         }
     }
@@ -411,17 +408,12 @@ private fun UnifiedControlPanel(
 // ─────────────────────────────────────────────────────
 
 /**
- * Délai de compensation Bluetooth par défaut (ms) pour la synchronisation audio/visuelle.
+ * Délai de compensation Bluetooth (ms) pour la synchronisation audio/visuelle.
  *
  * Sur les appareils Bluetooth, le décalage audio peut atteindre 150-250 ms.
  * On retarde légèrement l'avancement du surlignage pour que l'affichage
  * corresponde au son perçu par l'utilisateur.
- *
- * ⚠️ Cette constante n'est plus utilisée directement — la valeur effective
- * provient de [ReaderUiState.bluetoothLatencyMs], configurable par l'utilisateur
- * via [ReaderViewModel.setBluetoothLatency].
  */
-@Suppress("unused")
 private const val BLUETOOTH_LATENCY_COMPENSATION_MS = 180L
 
 /**
@@ -440,8 +432,7 @@ private fun ImmersiveText(
     textColor: Color,
     accentColor: Color,
     useOpenDyslexic: Boolean = false,
-    onTap: (Offset) -> Unit,
-    bluetoothLatencyMs: Long = 180L
+    onTap: (Offset) -> Unit
 ) {
     val bodyFont = if (useOpenDyslexic) OpenDyslexicFamily else FontFamily.Serif
     val listState = rememberLazyListState()
@@ -457,8 +448,7 @@ private fun ImmersiveText(
         if (isSpeaking && activeIdx in sentences.indices) {
             // Compensation Bluetooth : attendre que l'audio arrive aux oreilles
             // avant de déplacer le surlignage visuel.
-            // Délai configurable selon le type d'écouteurs (0ms filaire, ~180ms BT standard).
-            kotlinx.coroutines.delay(bluetoothLatencyMs)
+            kotlinx.coroutines.delay(BLUETOOTH_LATENCY_COMPENSATION_MS)
 
             // +1 pour sauter la ligne de titre (index 0 = titre du chapitre)
             val targetIndex = activeIdx + 1
@@ -561,9 +551,7 @@ private fun TtsPanel(
     onSpeedChange: (Float) -> Unit,
     onVoiceChange: (Int) -> Unit,
     currentSpeed: Float,
-    currentVoice: Int,
-    bluetoothLatencyMs: Long = 180L,
-    onLatencyChange: (Long) -> Unit = {}
+    currentVoice: Int
 ) {
     Column(
         modifier = Modifier
@@ -667,35 +655,6 @@ private fun TtsPanel(
                     selectedContainerColor = Color(0xFFFFB74D).copy(alpha = 0.25f),
                     selectedLabelColor = Color.White
                 )
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // ── Compensation latence Bluetooth ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "Latence BT",
-                color = Color.White.copy(alpha = 0.5f),
-                style = MaterialTheme.typography.labelSmall
-            )
-            Slider(
-                value = bluetoothLatencyMs.toFloat(),
-                onValueChange = { onLatencyChange(it.toLong()) },
-                valueRange = 0f..500f,
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color(0xFFFFB74D),
-                    activeTrackColor = Color(0xFFFFB74D)
-                )
-            )
-            Text(
-                "${bluetoothLatencyMs}ms",
-                color = Color.White.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.labelSmall
             )
         }
     }
