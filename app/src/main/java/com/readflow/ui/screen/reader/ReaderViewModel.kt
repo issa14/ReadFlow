@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -115,8 +116,8 @@ class ReaderViewModel @Inject constructor(
         val savedSentence = savedState.get<Int>("sentenceIndex") ?: 0
         val savedSpeed = savedState.get<Float>("speed") ?: 1.0f
         val savedVoice = savedState.get<Int>("voice") ?: 0
-        val savedTheme = savedState.get<String>("theme")?.let { 
-            try { ReaderTheme.valueOf(it) } catch (_: Exception) { null } 
+        val savedTheme = savedState.get<String>("theme")?.let {
+            try { ReaderTheme.valueOf(it) } catch (_: Exception) { null }
         } ?: ReaderTheme.NIGHT
         val savedDyslexic = savedState.get<Boolean>("openDyslexic") ?: false
 
@@ -133,7 +134,26 @@ class ReaderViewModel @Inject constructor(
                     ?: throw IllegalStateException("Livre introuvable")
                 currentBook = book
                 _uiState.update { it.copy(book = book, isLoading = false) }
-                loadChapter(savedChapter, savedSentence)
+
+                // Charger la progression persistée depuis Room (survit aux redémarrages)
+                val dbProgress = orchestrator.loadProgress(bookId)
+
+                val targetChapter: Int
+                val targetSentence: Int
+
+                if (dbProgress != null) {
+                    // Progression Room → prioritaire sur SavedStateHandle (process death)
+                    targetChapter = dbProgress.chapterIndex.coerceIn(0, book.totalChapters - 1)
+                    targetSentence = dbProgress.sentenceIndex
+                    Log.d("ReaderVM", "Progression restaurée depuis Room: ch=$targetChapter sent=$targetSentence")
+                } else {
+                    // Fallback sur SavedStateHandle (survie au process death uniquement)
+                    targetChapter = savedChapter
+                    targetSentence = savedSentence
+                    Log.d("ReaderVM", "Progression restaurée depuis SavedState: ch=$targetChapter sent=$targetSentence")
+                }
+
+                loadChapter(targetChapter, targetSentence)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
             }
@@ -211,7 +231,9 @@ class ReaderViewModel @Inject constructor(
             speed = s.speed,
             startFrom = startFrom,
             bookTitle = book.title,
-            chapterTitle = chapter.title
+            chapterTitle = chapter.title,
+            bookId = book.id,
+            chapterIndex = s.currentChapterIndex
         )
         _uiState.update { it.copy(isPlaying = true) }
     }

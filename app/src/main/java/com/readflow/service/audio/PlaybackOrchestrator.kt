@@ -1,6 +1,8 @@
 package com.readflow.service.audio
 
 import android.util.Log
+import com.readflow.data.database.ReadingProgressDao
+import com.readflow.data.database.entity.ReadingProgress
 import com.readflow.domain.model.Sentence
 import com.readflow.domain.model.SynthesisResult
 import com.readflow.domain.repository.TtsRepository
@@ -12,12 +14,26 @@ import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Orchester la lecture TTS phrase par phrase.
+ *
+ * Responsabilités :
+ * - Pipeline de synthèse + lecture gapless via [GaplessAudioPlayer]
+ * - Gestion du focus audio via [AudioFocusManager]
+ * - Persistance atomique de la progression via [ReadingProgressDao]
+ *
+ * Implémente [AudioFocusListener] pour réagir aux événements système
+ * (appels, notifications, débranchement casque).
+ */
 @Singleton
 class PlaybackOrchestrator @Inject constructor(
     private val ttsRepository: TtsRepository,
     private val player: GaplessAudioPlayer,
-    private val onnxService: OnnxInferenceService
-) {
+    private val onnxService: OnnxInferenceService,
+    private val audioFocusManager: AudioFocusManager,
+    private val progressDao: ReadingProgressDao
+) : AudioFocusListener {
+
     companion object {
         private const val TAG = "Orchestrator"
         private const val LOOKAHEAD = 3
@@ -50,8 +66,59 @@ class PlaybackOrchestrator @Inject constructor(
     @Volatile var currentVoice: Int = 0
     @Volatile var currentSpeed: Float = 1.0f
 
+    // Identité du livre/chapitre en cours, pour la persistance de progression
+    @Volatile private var currentBookId: String? = null
+    @Volatile private var currentChapterIdx: Int = 0
+    @Volatile private var currentSentenceIdx: Int = 0
+
     private var currentJob: Job? = null
-    @Volatile private var playGeneration: Long = 0L  // prévient les races Stop/Play
+    @Volatile private var playGeneration: Long = 0L
+    @Volatile private var wasPausedByFocusLoss: Boolean = false
+
+    init {
+        audioFocusManager.setListener(this)
+    }
+
+    // ── AudioFocusListener ───────────────────────────
+
+    override fun onFocusGained() {
+        Log.d(TAG, "onFocusGained — wasPausedByFocusLoss=$wasPausedByFocusLoss")
+        if (wasPausedByFocusLoss && _state.value is State.Paused) {
+            wasPausedByFocusLoss = false
+            resume()
+        }
+    }
+
+    override fun onFocusLost(isPermanent: Boolean) {
+        Log.d(TAG, "onFocusLost — permanent=$isPermanent")
+        if (_state.value is State.Playing) {
+            wasPausedByFocusLoss = true
+            pause()
+            if (isPermanent) {
+                audioFocusManager.abandonFocus()
+            }
+        }
+    }
+
+    override fun onAudioBecomingNoisy() {
+        Log.d(TAG, "onAudioBecomingNoisy → pause")
+        if (_state.value is State.Playing) {
+            wasPausedByFocusLoss = true
+            pause()
+        }
+    }
+
+    // ── API publique ─────────────────────────────────
+
+    /**
+     * Charge la dernière progression sauvegardée pour un livre.
+     * @return [ReadingProgress] ou null si aucune progression.
+     */
+    suspend fun loadProgress(bookId: String): ReadingProgress? {
+        return withContext(Dispatchers.IO) {
+            progressDao.getProgressForBook(bookId)
+        }
+    }
 
     fun play(
         sentences: List<Sentence>,
@@ -59,10 +126,20 @@ class PlaybackOrchestrator @Inject constructor(
         speed: Float = 1.0f,
         startFrom: Int = 0,
         bookTitle: String = "",
-        chapterTitle: String = ""
+        chapterTitle: String = "",
+        bookId: String = "",
+        chapterIndex: Int = 0
     ) {
         if (sentences.isEmpty()) return
         stop()
+
+        // Demander le focus audio — ne pas lancer sans accord
+        val focusGranted = audioFocusManager.requestFocus()
+        if (!focusGranted) {
+            Log.w(TAG, "Focus audio refusé, lecture annulée")
+            _state.value = State.Error("Focus audio non disponible")
+            return
+        }
 
         // Synchroniser le sample rate du player avec le modèle Piper (22050 Hz)
         player.sampleRate = onnxService.getSampleRate()
@@ -71,15 +148,18 @@ class PlaybackOrchestrator @Inject constructor(
         currentChapterTitle = chapterTitle
         currentVoice = voice
         currentSpeed = speed
+        currentBookId = bookId
+        currentChapterIdx = chapterIndex
+        currentSentenceIdx = startFrom
 
         val total = sentences.size
         _progress.value = Progress(startFrom, total, sentences.getOrNull(startFrom))
         _state.value = State.Playing
+        wasPausedByFocusLoss = false
 
         val myGeneration = ++playGeneration
         currentJob = scope.launch {
             try {
-                // Channel pour recevoir les résultats de synthèse
                 val buffer = Channel<SynthesisResult>(Channel.UNLIMITED)
 
                 // Synthétiser la première phrase en priorité (bloquant)
@@ -98,37 +178,43 @@ class PlaybackOrchestrator @Inject constructor(
                         } catch (e: CancellationException) { break }
                         catch (e: Exception) {
                             Log.e(TAG, "Synthesis error sentence $idx: ${e.message}", e)
-                            // Continue — ne pas bloquer tout le pipeline
                         }
                     }
                     buffer.close()
                 }
 
-                // Boucle de lecture — démarrer le player après le 1er enqueue
                 var started = false
 
                 for (result in buffer) {
                     if (!isActive || _state.value != State.Playing) break
 
                     player.enqueue(result.samples)
-                    // Silence inter-phrases pour respiration naturelle
                     val silenceLen = (result.sampleRate * INTER_SENTENCE_SILENCE_MS / 1000)
                     player.enqueue(FloatArray(silenceLen) { 0f })
 
                     if (!started) {
                         player.play()
                         started = true
-                        // Surveiller completedCount pour le surlignage synchronisé
+                        // Surveiller completedCount pour le surlignage + persistance
                         launch {
                             var lastCompleted = 0
                             while (isActive && _state.value == State.Playing &&
                                    player.completedCount < (total - startFrom) * 2) {
                                 val c = player.completedCount
                                 if (c != lastCompleted && c % 2 == 0) {
-                                    // Segment audio terminé (pair = fin de phrase, impair = fin de silence)
                                     val sentenceIdx = startFrom + c / 2
+                                    val currentSentence = sentences.getOrNull(sentenceIdx - 1)
+                                    currentSentenceIdx = sentenceIdx
                                     _progress.value = Progress(
-                                        sentenceIdx, total, sentences.getOrNull(sentenceIdx - 1))
+                                        sentenceIdx, total, currentSentence)
+
+                                    // ── Persistance atomique à chaque transition de phrase ──
+                                    saveProgressAsync(
+                                        bookId = bookId,
+                                        chapterIdx = chapterIndex,
+                                        sentenceIdx = sentenceIdx,
+                                        charOffset = currentSentence?.startOffset ?: 0
+                                    )
                                 }
                                 lastCompleted = c
                                 delay(100)
@@ -137,24 +223,34 @@ class PlaybackOrchestrator @Inject constructor(
                     }
                 }
 
-                // Attendre que le player ait fini TOUTES les phrases
-                // (chaque phrase = 1 segment audio + 1 silence → 2 entrées dans la queue)
                 val expectedSegments = (total - startFrom) * 2
                 while (player.completedCount < expectedSegments && isActive && _state.value == State.Playing) {
                     delay(200)
                 }
                 delay(300)
-                if (playGeneration == myGeneration) _state.value = State.Idle
+                if (playGeneration == myGeneration) {
+                    _state.value = State.Idle
+                    // Sauvegarder la progression finale (fin de chapitre)
+                    saveProgressAsync(
+                        bookId = bookId,
+                        chapterIdx = chapterIndex,
+                        sentenceIdx = total,
+                        charOffset = 0
+                    )
+                }
                 player.stop()
+                audioFocusManager.abandonFocus()
                 fillJob.cancel()
 
             } catch (e: CancellationException) {
                 player.stop()
+                audioFocusManager.abandonFocus()
                 if (playGeneration == myGeneration) _state.value = State.Idle
             } catch (e: Exception) {
                 Log.e(TAG, "Playback error", e)
                 if (playGeneration == myGeneration) _state.value = State.Error(e.message ?: "Erreur")
                 player.stop()
+                audioFocusManager.abandonFocus()
             }
         }
     }
@@ -172,12 +268,46 @@ class PlaybackOrchestrator @Inject constructor(
     fun stop() {
         currentJob?.cancel()
         player.stop()
+        audioFocusManager.abandonFocus()
         _state.value = State.Idle
+        wasPausedByFocusLoss = false
     }
 
     fun release() {
         stop()
         scope.cancel()
         player.release()
+        audioFocusManager.setListener(null)
+    }
+
+    // ── Private ───────────────────────────────────────
+
+    /**
+     * Sauvegarde la progression de manière atomique dans un scope
+     * lié au cycle de vie du service, sur [Dispatchers.IO].
+     */
+    private fun saveProgressAsync(
+        bookId: String,
+        chapterIdx: Int,
+        sentenceIdx: Int,
+        charOffset: Int
+    ) {
+        if (bookId.isEmpty()) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                progressDao.saveProgress(
+                    ReadingProgress(
+                        bookId = bookId,
+                        chapterIndex = chapterIdx,
+                        sentenceIndex = sentenceIdx,
+                        characterOffset = charOffset,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+                Log.d(TAG, "Progression sauvegardée: book=$bookId ch=$chapterIdx sent=$sentenceIdx")
+            } catch (e: Exception) {
+                Log.e(TAG, "Échec sauvegarde progression: ${e.message}", e)
+            }
+        }
     }
 }

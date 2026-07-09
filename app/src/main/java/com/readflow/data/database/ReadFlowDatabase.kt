@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.readflow.data.database.entity.BookEntity
 import com.readflow.data.database.entity.BookmarkEntity
 import com.readflow.data.database.entity.ProgressEntity
+import com.readflow.data.database.entity.ReadingProgress
 import com.readflow.data.database.entity.SentenceFts
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -31,9 +32,29 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS reading_progress (
+                bookId TEXT NOT NULL PRIMARY KEY,
+                chapterIndex INTEGER NOT NULL DEFAULT 0,
+                sentenceIndex INTEGER NOT NULL DEFAULT 0,
+                characterOffset INTEGER NOT NULL DEFAULT 0,
+                updatedAt INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+    }
+}
+
 @Database(
-    entities = [BookEntity::class, ProgressEntity::class, BookmarkEntity::class, SentenceFts::class],
-    version = 3,
+    entities = [
+        BookEntity::class,
+        ProgressEntity::class,
+        BookmarkEntity::class,
+        SentenceFts::class,
+        ReadingProgress::class
+    ],
+    version = 4,
     exportSchema = false
 )
 abstract class ReadFlowDatabase : RoomDatabase() {
@@ -41,4 +62,5 @@ abstract class ReadFlowDatabase : RoomDatabase() {
     abstract fun progressDao(): ProgressDao
     abstract fun bookmarkDao(): BookmarkDao
     abstract fun searchDao(): SearchDao
+    abstract fun readingProgressDao(): ReadingProgressDao
 }

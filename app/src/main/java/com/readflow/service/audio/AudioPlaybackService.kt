@@ -102,12 +102,10 @@ class AudioPlaybackService : MediaSessionService() {
                 when (state) {
                     is State.Idle -> {
                         player.setIdle()
-                        audioFocusManager.abandonFocus()
                         updateNotification("Prêt", "Lecture TTS", isPlaying = false)
                     }
                     is State.Playing -> {
-                        // Demander le focus audio (gère appels, notifs, ducking)
-                        audioFocusManager.requestFocus()
+                        // Le focus audio est géré par PlaybackOrchestrator
                         val title = orchestrator.currentChapterTitle.ifEmpty {
                             orchestrator.currentBookTitle.ifEmpty { "ReadFlow" }
                         }
@@ -127,7 +125,6 @@ class AudioPlaybackService : MediaSessionService() {
                     }
                     is State.Error -> {
                         player.setIdle()
-                        audioFocusManager.abandonFocus()
                         updateNotification("Erreur", state.message, isPlaying = false)
                     }
                 }

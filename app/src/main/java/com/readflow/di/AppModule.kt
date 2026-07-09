@@ -6,8 +6,10 @@ import com.readflow.data.database.BookDao
 import com.readflow.data.database.BookmarkDao
 import com.readflow.data.database.MIGRATION_1_2
 import com.readflow.data.database.MIGRATION_2_3
+import com.readflow.data.database.MIGRATION_3_4
 import com.readflow.data.database.ProgressDao
 import com.readflow.data.database.ReadFlowDatabase
+import com.readflow.data.database.ReadingProgressDao
 import com.readflow.data.database.SearchDao
 import com.readflow.data.repository.BookRepositoryImpl
 import com.readflow.data.repository.TtsRepositoryImpl
@@ -31,7 +33,7 @@ object AppModule {
             context,
             ReadFlowDatabase::class.java,
             "readflow.db"
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
          .build()
     }
 
@@ -46,6 +48,9 @@ object AppModule {
 
     @Provides
     fun provideProgressDao(db: ReadFlowDatabase): ProgressDao = db.progressDao()
+
+    @Provides
+    fun provideReadingProgressDao(db: ReadFlowDatabase): ReadingProgressDao = db.readingProgressDao()
 
     @Provides
     @Singleton
