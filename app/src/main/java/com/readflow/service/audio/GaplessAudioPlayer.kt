@@ -4,9 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
-import com.readflow.domain.model.SynthesisResult
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -20,13 +18,17 @@ import javax.inject.Singleton
  * sans silence entre eux. Chaque segment est ajouté à une file d'attente
  * et lu dès que le précédent est terminé.
  *
- * Format : PCM float mono. Sample rate dynamique (22050 Hz pour Piper).
+ * Format : PCM 16-bit mono. Sample rate dynamique (22050 Hz pour Piper).
+ * Sherpa-ONNX produit du PCM float → conversion FloatArray → ShortArray
+ * avec gain 3x pour compenser le volume natif faible du modèle Miro.
  */
 @Singleton
 class GaplessAudioPlayer @Inject constructor() {
 
     companion object {
         private const val TAG = "GaplessPlayer"
+        /** Multiplicateur de gain appliqué lors de la conversion float→int16. */
+        private const val GAIN_MULTIPLIER = 3.0f
     }
 
     /**
@@ -57,12 +59,6 @@ class GaplessAudioPlayer @Inject constructor() {
     /** Volume actuel (0.0 à 1.0). */
     @Volatile var currentVolume: Float = 1.0f
         private set
-
-    /**
-     * Multiplicateur de gain logiciel (1.0 = volume natif du modèle).
-     * Ajustable pour compenser un modèle qui produit un signal trop faible.
-     */
-    @Volatile var volumeGain: Float = 1.8f
 
     /** Ajoute un segment audio à la file de lecture. */
     fun enqueue(samples: FloatArray) {
@@ -151,8 +147,8 @@ class GaplessAudioPlayer @Inject constructor() {
         val bufferSize = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_FLOAT
-        ).coerceAtLeast(4096 * 8)  // marge anti-underrun (GC pauses)
+            AudioFormat.ENCODING_PCM_16BIT
+        ).coerceAtLeast(4096 * 8)
 
         track = AudioTrack.Builder()
             .setAudioAttributes(
@@ -164,7 +160,7 @@ class GaplessAudioPlayer @Inject constructor() {
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setSampleRate(sampleRate)
-                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build()
             )
@@ -175,20 +171,26 @@ class GaplessAudioPlayer @Inject constructor() {
         track?.play()
     }
 
-    private fun writeBlocking(original: FloatArray) {
+    /**
+     * Convertit le FloatArray PCM (Sherpa-ONNX) en ShortArray PCM 16-bit
+     * avec gain 3x, puis écrit dans l'AudioTrack par chunks.
+     */
+    private fun writeBlocking(floatSamples: FloatArray) {
         val t = track ?: return
-        val gain = volumeGain
-        // Cloner pour ne pas altérer l'original (utilisé par le cache)
-        val samples = if (gain != 1.0f) {
-            FloatArray(original.size) { i -> (original[i] * gain).coerceIn(-1f, 1f) }
-        } else {
-            original
+
+        // Conversion FloatArray → ShortArray avec gain
+        val n = floatSamples.size
+        val shortSamples = ShortArray(n)
+        for (i in 0 until n) {
+            val pcmSample = (floatSamples[i] * 32767.0f * GAIN_MULTIPLIER).toInt()
+            shortSamples[i] = pcmSample.coerceIn(-32768, 32767).toShort()
         }
+
         val chunkSize = 4096
         var offset = 0
-        while (offset < samples.size && _state.value == State.Playing) {
-            val len = minOf(chunkSize, samples.size - offset)
-            val written = t.write(samples, offset, len, AudioTrack.WRITE_BLOCKING)
+        while (offset < n && _state.value == State.Playing) {
+            val len = minOf(chunkSize, n - offset)
+            val written = t.write(shortSamples, offset, len)
             if (written < 0) {
                 Log.e(TAG, "AudioTrack write error: $written")
                 break
