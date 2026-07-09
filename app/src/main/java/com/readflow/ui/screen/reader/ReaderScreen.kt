@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -115,14 +116,14 @@ fun ReaderScreen(
             )
         }
 
-        // ── COUCHE 5 : Micro-indicateur (HUD masqué) ────
+        // ── Micro-indicateur (HUD masqué) ────
         if (!state.isHudVisible && chapter != null) {
             val pct = if (state.totalSentences > 0)
-                (state.currentSentenceIndex * 100 / state.totalSentences) else 0
+                (state.currentSentenceIndex * 100.0 / state.totalSentences) else 0.0
             Text(
-                "Ch. ${state.currentChapterIndex + 1} • $pct%",
-                color = textColor.copy(alpha = 0.25f),
-                fontSize = 11.sp,
+                "${"%.1f".format(pct)}%",
+                color = textColor.copy(alpha = 0.4f),
+                fontSize = 12.sp,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
@@ -130,7 +131,7 @@ fun ReaderScreen(
             )
         }
 
-        // ── COUCHE 1 : TopBar (overlay, animé) ──────────
+        // ── TopBar (overlay) ─────────────────────────
         AnimatedVisibility(
             visible = state.isHudVisible,
             enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { -it },
@@ -141,12 +142,15 @@ fun ReaderScreen(
                 title = book?.title ?: "",
                 subtitle = "Ch. ${state.currentChapterIndex + 1}/${book?.totalChapters ?: 0}",
                 onBack = onBack,
-                onToc = { viewModel.showTocSheet() },
-                onThemeCycle = { viewModel.cycleTheme() }
+                onToc = { viewModel.showTocSheet() }
             )
         }
 
-        // ── COUCHE 1 : UnifiedControlPanel (overlay, animé) ─
+        // ── UnifiedControlPanel (overlay) ────────────
+        val panelBg = when (state.readerTheme) {
+            ReaderTheme.SEPIA -> Color(0xFFE8DCC8)
+            else -> Color(0xFF0A0A0A)
+        }
         AnimatedVisibility(
             visible = state.isHudVisible,
             enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
@@ -160,10 +164,8 @@ fun ReaderScreen(
                     (state.currentSentenceIndex * 100 / state.totalSentences) else 0,
                 isPlaying = state.isPlaying,
                 accentColor = accentColor,
-                onTtsClick = {
-                    if (state.isPlaying) viewModel.pause() else viewModel.play()
-                },
-                onTtsSettings = { viewModel.showTtsSheet() },
+                panelBg = panelBg,
+                onTtsClick = { if (state.isPlaying) viewModel.pause() else viewModel.play() },
                 onThemeCycle = { viewModel.cycleTheme() },
                 onPrevChapter = { viewModel.previousChapter() },
                 onNextChapter = { viewModel.nextChapter() }
@@ -171,7 +173,7 @@ fun ReaderScreen(
         }
     }
 
-    // ── COUCHE 2 : Panneau TTS ───────────────────────
+    // ── Panneau TTS ───────────────────────
     if (state.isTtsSheetVisible) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.hideTtsSheet() },
@@ -267,8 +269,7 @@ private fun ReaderTopBar(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
-    onToc: () -> Unit,
-    onThemeCycle: () -> Unit
+    onToc: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -300,10 +301,6 @@ private fun ReaderTopBar(
                 Icon(Icons.Default.List, "TOC",
                     tint = Color.White.copy(alpha = 0.6f))
             }
-            IconButton(onClick = onThemeCycle) {
-                Icon(Icons.Default.Palette, "Thème",
-                    tint = Color.White.copy(alpha = 0.6f))
-            }
         }
     }
 }
@@ -318,15 +315,15 @@ private fun UnifiedControlPanel(
     percentage: Int,
     isPlaying: Boolean,
     accentColor: Color,
+    panelBg: Color,
     onTtsClick: () -> Unit,
-    onTtsSettings: () -> Unit,
     onThemeCycle: () -> Unit,
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFF0A0A0A).copy(alpha = 0.94f),
+        color = panelBg.copy(alpha = 0.94f),
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
     ) {
         Column(
@@ -335,7 +332,7 @@ private fun UnifiedControlPanel(
                 .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            // ── Rangée 1 : Contrôles TTS et Outils ────
+            // ── Rangée 1 : Outils rapides ────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -345,19 +342,11 @@ private fun UnifiedControlPanel(
                 IconButton(onClick = onTtsClick) {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        "TTS",
-                        tint = accentColor,
-                        modifier = Modifier.size(26.dp)
+                        "TTS", tint = accentColor, modifier = Modifier.size(26.dp)
                     )
                 }
-                // Réglages TTS (vitesse/voix)
-                IconButton(onClick = onTtsSettings) {
-                    Icon(Icons.Outlined.Headphones, "Audio",
-                        tint = Color.White.copy(alpha = 0.6f),
-                        modifier = Modifier.size(22.dp))
-                }
-                // Taille texte (placeholder visuel)
-                IconButton(onClick = { /* future: fontSize */ }) {
+                // Taille texte
+                IconButton(onClick = { /* fontSize */ }) {
                     Text("AA", color = Color.White.copy(alpha = 0.6f),
                         fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
@@ -368,46 +357,30 @@ private fun UnifiedControlPanel(
                 }
             }
 
-            // ── Rangée 2 : Progression ────────────────
+            Spacer(Modifier.height(4.dp))
+
+            // ── Rangée 2 : Progression + Navigation ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                TextButton(onClick = onPrevChapter, modifier = Modifier.width(100.dp)) {
+                    Text("◀ Précédent", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+                }
                 Text("$percentage%", color = Color.White.copy(alpha = 0.55f),
-                    fontSize = 12.sp, modifier = Modifier.width(36.dp))
+                    fontSize = 12.sp, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
                 Slider(
                     value = progress,
                     onValueChange = {},
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                     colors = SliderDefaults.colors(
                         thumbColor = accentColor,
                         activeTrackColor = accentColor,
                         inactiveTrackColor = Color.White.copy(alpha = 0.12f)
                     )
                 )
-                Text("${100 - percentage}%", color = Color.White.copy(alpha = 0.35f),
-                    fontSize = 12.sp, modifier = Modifier.width(36.dp))
-            }
-
-            // ── Rangée 3 : Navigation chapitres ────────
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                TextButton(onClick = onPrevChapter) {
-                    Icon(Icons.Default.SkipPrevious, null,
-                        tint = Color.White.copy(alpha = 0.45f), modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Chapitre précédent", color = Color.White.copy(alpha = 0.45f),
-                        fontSize = 12.sp)
-                }
-                Spacer(Modifier.width(16.dp))
-                TextButton(onClick = onNextChapter) {
-                    Text("Chapitre suivant", color = Color.White.copy(alpha = 0.45f),
-                        fontSize = 12.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.SkipNext, null,
-                        tint = Color.White.copy(alpha = 0.45f), modifier = Modifier.size(16.dp))
+                TextButton(onClick = onNextChapter, modifier = Modifier.width(100.dp)) {
+                    Text("Suivant ▶", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
                 }
             }
         }
