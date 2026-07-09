@@ -100,7 +100,26 @@ class ReadFlowPlayer(
         invalidateState()
     }
 
-    /** Nettoie l'état interne sans appeler super.release(). */
+    /**
+     * Met à jour [playWhenReady] SANS déclencher [handleSetPlayWhenReady].
+     *
+     * Utile pour synchroniser l'état du Player avec un changement
+     * déjà effectué côté [PlaybackOrchestrator] (ex: depuis la notification).
+     * Évite l'appel redondant à [orchestrator.resume] ou [orchestrator.pause].
+     */
+    fun setPlayWhenReadySilent(pwr: Boolean) {
+        if (released) return
+        this.playWhenReady = pwr
+        invalidateState()
+    }
+
+    /**
+     * Nettoie l'état interne. Appelé avant ou après [SimpleBasePlayer.release].
+     *
+     * [SimpleBasePlayer.release] est `final` — on ne peut pas l'override.
+     * L'appelant ([AudioPlaybackService.onDestroy]) doit appeler
+     * `readFlowPlayer?.release()` (Media3) suivi de cette méthode si nécessaire.
+     */
     fun cleanup() {
         released = true
         playWhenReady = false

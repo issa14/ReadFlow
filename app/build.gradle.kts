@@ -129,6 +129,7 @@ dependencies {
     ksp(libs.room.compiler)
 
     // --- Media3 ---
+    implementation(libs.media3.common)
     implementation(libs.media3.session)
     implementation(libs.media3.exoplayer)
 

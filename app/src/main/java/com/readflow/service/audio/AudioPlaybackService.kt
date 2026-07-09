@@ -129,12 +129,10 @@ class AudioPlaybackService : MediaSessionService() {
         stopObserving()
         serviceScope.cancel()
 
-        // Libération ordonnée : Player → MediaSession → AudioFocus
+        // Libération ordonnée : SimpleBasePlayer.release() (final) → cleanup → MediaSession → AudioFocus
         try {
-            readFlowPlayer?.let { player ->
-                player.setIdle()
-                player.cleanup()
-            }
+            readFlowPlayer?.release()   // SimpleBasePlayer.release() — final, gère le cycle Media3
+            readFlowPlayer?.cleanup()   // Nettoie l'état interne (flags @Volatile)
         } catch (e: Exception) {
             Log.e(TAG, "Erreur libération ReadFlowPlayer: ${e.message}", e)
         }
@@ -175,12 +173,15 @@ class AudioPlaybackService : MediaSessionService() {
                             artist = orchestrator.currentBookTitle
                         )
                         player.setReady(true)
-                        player.setPlayWhenReady(true)
+                        // setPlayWhenReadySilent: synchronise l'icône play/pause
+                        // dans la notification système SANS rappeler orchestrator.resume()
+                        player.setPlayWhenReadySilent(true)
                         updateNotification(title, orchestrator.currentBookTitle, isPlaying = true)
                     }
                     is State.Paused -> {
-                        player.setPlayWhenReady(false)
-                        player.refreshState()
+                        // setPlayWhenReadySilent: synchronise l'état pour le lockscreen/Bluetooth
+                        // sans rappeler orchestrator.pause()
+                        player.setPlayWhenReadySilent(false)
                         updateNotification(
                             title = orchestrator.currentChapterTitle.ifEmpty { "ReadFlow" },
                             subtitle = "⏸ En pause",
