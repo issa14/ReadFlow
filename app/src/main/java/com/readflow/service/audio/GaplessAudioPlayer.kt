@@ -152,7 +152,7 @@ class GaplessAudioPlayer @Inject constructor() {
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_FLOAT
-        ).coerceAtLeast(4096 * 4)
+        ).coerceAtLeast(4096 * 8)  // marge anti-underrun (GC pauses)
 
         track = AudioTrack.Builder()
             .setAudioAttributes(

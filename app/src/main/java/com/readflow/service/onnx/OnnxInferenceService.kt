@@ -74,7 +74,14 @@ class OnnxInferenceService @Inject constructor(
         val engine = tts
             ?: throw IllegalStateException("TTS non initialisé.")
 
-        val cleaned = text.trim().replace(Regex("\\.{3,}"), ".")
+        val cleaned = text
+            .trim()
+            .replace(Regex("([.!?])\\s+\\1\\s+\\1"), "$1$1$1") // "! ! !" → "!!!"
+            .replace(Regex("([.!?])\\1{2,}"), "$1")              // "......" → "."
+            .replace("\u200B", "")                                // zero-width space
+            .replace("\u00a0", " ")                               // non-breaking space → espace
+            .replace(Regex("\\s+"), " ")                          // normalise espaces
+        Log.d(TAG, "synth: \"$cleaned\"")
         val startMs = System.currentTimeMillis()
         val audio = engine.generate(cleaned, voice.sid, speed.coerceIn(0.5f, 2.0f))
         val elapsedMs = System.currentTimeMillis() - startMs
