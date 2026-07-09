@@ -19,7 +19,7 @@ class TtsRepositoryImpl @Inject constructor(
         speed: Float
     ): SynthesisResult {
         val voiceEnum = OnnxInferenceService.Voice.entries
-            .find { it.sid == voice } ?: OnnxInferenceService.Voice.JESSICA
+            .find { it.sid == voice } ?: OnnxInferenceService.Voice.AF_HEART
 
         // Clé de cache : texte normalisé + voix + vitesse
         val key = "${text.trim()}|${voiceEnum.sid}|${"%.2f".format(speed)}"

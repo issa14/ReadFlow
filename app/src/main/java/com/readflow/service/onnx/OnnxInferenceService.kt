@@ -4,8 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
-import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.readflow.domain.model.SynthesisResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -18,15 +18,22 @@ class OnnxInferenceService @Inject constructor(
 ) {
     companion object {
         private const val TAG = "OnnxInference"
-        private const val ASSET_DIR = "models/vits-piper-fr_FR-upmc-medium"
-        private const val ONNX_FILE = "fr_FR-upmc-medium.onnx"
+        // Modèle Kokoro multilingue 82M (français, anglais, etc.)
+        private const val ASSET_DIR = "models/kokoro-multi-lang-v1_0"
+        private const val ONNX_FILE = "model.onnx"
+        private const val VOICES_FILE = "voices.bin"
+        private const val TOKENS_FILE = "tokens.txt"
     }
 
     private var tts: OfflineTts? = null
 
+    /** Voix Kokoro disponibles (dépendent du pack voices.bin utilisé). */
     enum class Voice(val sid: Int, val label: String) {
-        JESSICA(0, "Jessica"),
-        PIERRE(1, "Pierre")
+        AF_HEART(0, "❤️ Heart (fr)"),
+        AF_BELLA(1, "🔔 Bella (fr)"),
+        AF_NICOLE(2, "🎙️ Nicole (fr)"),
+        AF_AOEDE(3, "🎵 Aoede (en)"),
+        AF_KORE(4, "🎶 Kore (en)"),
     }
 
     fun initialize() {
@@ -34,26 +41,30 @@ class OnnxInferenceService @Inject constructor(
 
         val dataDir = copyEspeakDataToInternal()
 
-        val vitsConfig = OfflineTtsVitsModelConfig(
+        val kokoroConfig = OfflineTtsKokoroModelConfig(
             model = "$ASSET_DIR/$ONNX_FILE",
-            lexicon = "",
-            tokens = "$ASSET_DIR/tokens.txt",
+            voices = "$ASSET_DIR/$VOICES_FILE",
+            tokens = "$ASSET_DIR/$TOKENS_FILE",
             dataDir = dataDir,
+            lexicon = "",
+            lang = "",
             dictDir = "",
-            noiseScale = 0.667f,
-            noiseScaleW = 0.8f,
             lengthScale = 1.0f
         )
 
-        val modelConfig = OfflineTtsModelConfig().apply { vits = vitsConfig }
+        val modelConfig = OfflineTtsModelConfig().apply {
+            kokoro = kokoroConfig
+            numThreads = 4
+            provider = "cpu"
+        }
         val config = OfflineTtsConfig(modelConfig, "", "", 1, 1.0f)
 
         tts = OfflineTts(context.assets, config)
-        Log.i(TAG, "OK — ${tts!!.numSpeakers()} locuteurs, ${tts!!.sampleRate()} Hz")
+        Log.i(TAG, "Kokoro OK — ${tts!!.numSpeakers()} locuteurs, ${tts!!.sampleRate()} Hz")
     }
 
-    fun synthesize(text: String, voice: Voice = Voice.JESSICA, speed: Float = 1.0f): SynthesisResult {
-        val engine = tts ?: throw IllegalStateException("Non initialisé.")
+    fun synthesize(text: String, voice: Voice = Voice.AF_HEART, speed: Float = 1.0f): SynthesisResult {
+        val engine = tts ?: throw IllegalStateException("TTS non initialisé. Appeler initialize() d'abord.")
         val startMs = System.currentTimeMillis()
         val audio = engine.generate(text.trim(), voice.sid, speed.coerceIn(0.5f, 2.0f))
         val elapsedMs = System.currentTimeMillis() - startMs
@@ -63,7 +74,22 @@ class OnnxInferenceService @Inject constructor(
         return SynthesisResult(audio.samples, audio.sampleRate, text, voice.label, elapsedMs, durationMs)
     }
 
+    /** Change la voix par défaut utilisée pour les prochaines synthèses. */
+    fun setVoice(voice: Voice) {
+        // La voix est passée à chaque appel synthesize(), pas besoin de reconfig
+    }
+
     fun release() { tts?.release(); tts = null }
+
+    /** Vérifie si le modèle Kokoro est présent dans les assets. */
+    fun isModelAvailable(): Boolean {
+        return try {
+            context.assets.open("$ASSET_DIR/$ONNX_FILE").close()
+            true
+        } catch (_: Exception) { false }
+    }
+
+    // ── Private ──────────────────────────────────────
 
     private fun copyEspeakDataToInternal(): String {
         val target = File(context.filesDir, "espeak-ng-data")
