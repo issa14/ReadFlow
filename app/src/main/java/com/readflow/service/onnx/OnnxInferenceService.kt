@@ -71,8 +71,8 @@ class OnnxInferenceService @Inject constructor(
 
         val modelConfig = OfflineTtsModelConfig().apply {
             kokoro = kokoroConfig
-            numThreads = 4
-            provider = "nnapi"
+            numThreads = 2   // 2 cœurs Kryo Gold (big.LITTLE: évite les cœurs lents)
+            provider = "cpu" // CPU natif, pas de fallback NNAPI pour Transformer
             debug = true
         }
         val config = OfflineTtsConfig(modelConfig, "", "", 1, 1.0f)
