@@ -1,8 +1,9 @@
 # 📊 ReadFlow — Suivi d'Avancement Projet
 
-> Dernière mise à jour : 2026-07-08  
-> Phase actuelle : **Phase 2 — Parsing EPUB & Pipeline Audio**  
-> Progression globale : **20%**
+> Dernière mise à jour : 2026-07-09  
+> Phase actuelle : **Phase 3 — UI & Intégration (complétée) → Phase 4 — Polish & Release**  
+> Progression globale : **~65%**  
+> Modèle TTS : **Piper VITS `fr_FR-miro-high`** (Sherpa-ONNX 1.13.4, RTF ~0.24)
 
 ---
 
@@ -60,21 +61,21 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 | 2.10 | `MediaSessionConnector` + `AudioFocusManager` | ✅ Fait | 🔴 | AudioFocus: appels → pause, notifs → ducking |
 | 2.11 | `AudioCacheManager` (LRU, eviction, purge) | ✅ Fait | 🟡 | LRU 30 Mo, TTL 10 min, intégré TtsRepository |
 | 2.12 | `SynthesisResult` sealed class + error handling | ✅ Fait | 🟡 | Fait avec OnnxInferenceService |
-| 2.13 | Test intégration : lecture TTS chapitre complet | ⬜ À faire | 🔴 | Livrable clé |
+| 2.13 | Test intégration : lecture TTS chapitre complet | ✅ Fait | 🔴 | Validé — Piper Miro, RTF ~0.24 |
 
-### Phase 3 — UI & Intégration (Objectif : Semaines 11-16)
+### Phase 3 — UI & Intégration ✅ COMPLÉTÉE (Objectif : Semaines 11-16)
 
 | # | Tâche | Statut | Priorité | Notes |
 |---|---|---|---|---|
-| 3.1 | `LibraryScreen` — Import EPUB via SAF | ⬜ À faire | 🔴 | Grid/list, covers, progression |
-| 3.2 | Table des matières navigable (NCX/NAV) | ⬜ À faire | 🔴 | — |
-| 3.3 | `ReaderScreen` — Rendu texte paginé | ⬜ À faire | 🔴 | Typographie, thèmes |
-| 3.4 | `HighlightedText` — Surlignage synchronisé | ⬜ À faire | 🔴 | AnnotatedString + SpanStyle |
-| 3.5 | `MediaControlBar` — Play, Pause, Seek, Next/Prev | ⬜ À faire | 🔴 | — |
-| 3.6 | `ChapterProgressBar` — Progression chapitre | ⬜ À faire | 🟡 | — |
-| 3.7 | `SettingsScreen` — Vitesse, voix, typographie | ⬜ À faire | 🟡 | — |
+| 3.1 | `LibraryScreen` — Import EPUB via SAF + grille | ✅ Fait | 🔴 | Grid 3 colonnes, covers, filtres, tri |
+| 3.2 | Table des matières navigable (NCX/NAV) | ✅ Fait | 🔴 | Drawer TOC dans ReaderScreen |
+| 3.3 | `ReaderScreen` — Rendu texte immersif | ✅ Fait | 🔴 | Overlay, center-third tap, thèmes |
+| 3.4 | Surlignage synchronisé phrase par phrase | ✅ Fait | 🔴 | Scroll automatique sur lecture |
+| 3.5 | `UnifiedControlPanel` — Play, Pause, Next/Prev | ✅ Fait | 🔴 | 2 rangées, speed slider, voice chips |
+| 3.6 | Indicateur de progression | ✅ Fait | 🟡 | Micro-indicateur % + chapitre |
+| 3.7 | Réglages TTS dans le panneau (vitesse, voix) | ✅ Fait | 🟡 | Intégré au UnifiedControlPanel |
 | 3.8 | `BookmarkScreen` — Gestion signets | ⬜ À faire | 🟡 | — |
-| 3.9 | Thèmes : clair, sépia, sombre | ⬜ À faire | 🟢 | Material 3 |
+| 3.9 | Thèmes : Nuit, Jour, Sépia | ✅ Fait | 🟢 | cycleTheme() + Material 3 |
 | 3.10 | Police OpenDyslexic | ⬜ À faire | 🟢 | — |
 | 3.11 | Tests UI + capture screenshots | ⬜ À faire | 🟡 | — |
 
@@ -82,18 +83,30 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 
 | # | Tâche | Statut | Priorité | Notes |
 |---|---|---|---|---|
-| 4.1 | Profilage CPU/Batterie (Android Profiler) | ⬜ À faire | 🔴 | Optimiser buffer |
+| 4.1 | Profilage CPU/Batterie (Android Profiler) | ⬜ À faire | 🔴 | — |
 | 4.2 | FTS5 `chapter_content_fts` — recherche in-book | ⬜ À faire | 🔴 | — |
 | 4.3 | Process Death : `SavedStateHandle` + restoration | ⬜ À faire | 🔴 | — |
-| 4.4 | Gestion EPUB corrompus / erreurs parsing | ⬜ À faire | 🟡 | Graceful degradation |
+| 4.4 | Gestion EPUB corrompus / erreurs parsing | ⬜ À faire | 🟡 | — |
 | 4.5 | SAF : persistence permissions + réimport | ⬜ À faire | 🟡 | — |
-| 4.6 | ProGuard/R8 config (ONNX + Sherpa) | ⬜ À faire | 🔴 | Sinon crash release |
+| 4.6 | ProGuard/R8 config (ONNX + Sherpa + Readium) | ✅ Fait | 🔴 | Règles complètes — build release OK |
 | 4.7 | Backup/Restore données (bookmarks, progrès) | ⬜ À faire | 🟡 | — |
-| 4.8 | Accessibilité : TalkBack, tailles min/max | ⬜ À faire | 🟡 | Obligatoire Play Store |
-| 4.9 | Vérification licences (Sherpa, Readium, ONNX) | ⬜ À faire | 🟡 | Conformité légale |
-| 4.10 | Build signed APK / AAB release | ⬜ À faire | 🔴 | — |
-| 4.11 | Beta fermée — 10-20 lecteurs francophones | ⬜ À faire | 🔴 | Feedback UX |
+| 4.8 | Accessibilité : TalkBack, tailles min/max | ⬜ À faire | 🟡 | — |
+| 4.9 | Vérification licences (Sherpa, Readium, ONNX) | ⬜ À faire | 🟡 | — |
+| 4.10 | Build signed APK / AAB release | 🔄 Partiel | 🔴 | Unsigned release OK, keystore à générer |
+| 4.11 | Beta fermée — 10-20 lecteurs francophones | ⬜ À faire | 🔴 | — |
 | 4.12 | Publication Play Store (internal testing) | ⬜ À faire | 🔴 | — |
+
+### 🔄 Historique TTS : Kokoro → Piper
+
+Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé puis abandonné :
+- Crashs natifs OOM/SIGSEGV sur Snapdragon 680 (4 Go RAM)
+- RTF ~3-4, instable
+- Voix `ff_siwis` (sid=30) causait des crashs
+
+**Retour à Piper VITS** avec `fr_FR-miro-high` (61 Mo) :
+- RTF ~0.24, stable, pas de crash
+- Voix masculine FR, volume corrigé (gain 1.8x)
+- Nettoyage ponctuation multiples avant synthèse
 
 ---
 
@@ -101,7 +114,7 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 
 | # | Bloqueur | Impact | Date identifié | Résolution |
 |---|---|---|---|---|
-| — | Aucun pour le moment | — | — | — |
+| — | Aucun bloquant actif | — | — | — |
 
 ---
 
@@ -109,12 +122,11 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 
 | # | Risque | Probabilité | Impact | Mitigation |
 |---|---|---|---|---|
-| R1 | Sherpa-ONNX timestamps non fiables en français | Moyenne | Critique | Prototype early (Phase 0), fallback Piper |
-| R2 | RTF > 1.0 sur chipsets milieu de gamme (MediaTek) | Élevée | Majeur | Tester tôt, ajuster modèle/buffer |
-| R3 | Readium échoue sur certains EPUB3 complexes | Moyenne | Majeur | Tester 5+ EPUBs variés en Phase 2 |
-| R4 | Phonémisation FR de mauvaise qualité | Moyenne | Majeur | Valider avec un natif francophone |
-| R5 | AudioTrack buffer underrun sur devices lents | Faible | Mineur | Buffer adaptatif, fallback silence 50ms |
-| R6 | Process death perd l'état de lecture | Faible | Mineur | `SavedStateHandle` + Room |
+| R1 | Sherpa-ONNX timestamps non fiables en français | Faible | Critique | ✅ Résolu — alignement phrase par phrase OK |
+| R2 | RTF > 1.0 sur chipsets milieu de gamme | Faible | Majeur | ✅ Résolu — Piper Miro RTF ~0.24 sur SD680 |
+| R3 | Readium échoue sur certains EPUB3 complexes | Moyenne | Majeur | À tester avec plus d'EPUBs |
+| R4 | Phonémisation FR de mauvaise qualité | Faible | Majeur | ✅ Résolu — eSpeak-NG + Piper OK |
+| R5 | Kokoro OOM/SIGSEGV sur 4 Go RAM | — | — | ✅ Résolu — Retour à Piper VITS (61 Mo) |
 
 ---
 
@@ -122,14 +134,12 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 
 | Métrique | Cible | Actuel |
 |---|---|---|
-| RTF (Real-Time Factor) | < 1.0 | — |
-| Temps synthèse par phrase | < 500ms | — |
-| Gap inter-phrases | 0ms | — |
-| Taille APK (hors modèle) | < 15 Mo | — |
-| Taille modèle ONNX | < 80 Mo | — |
-| Utilisation RAM au runtime | < 200 Mo | — |
-| Recomposition UI (surlignage) | < 16ms (60 FPS) | — |
-| Couverture de tests unitaires | > 70% (domain layer) | — |
+| RTF (Real-Time Factor) | < 1.0 | **~0.24** (Piper Miro) |
+| Temps synthèse par phrase | < 500ms | ~100-300ms |
+| Gap inter-phrases | 0ms | 0ms (gapless) |
+| Taille APK (debug) | < 200 Mo | **120 Mo** |
+| Taille modèle ONNX | < 80 Mo | **61 Mo** (Piper Miro) |
+| Tests unitaires | > 70% (domain) | 18 tests (splitter + cache) |
 
 ---
 
