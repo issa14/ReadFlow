@@ -1,5 +1,6 @@
 package com.readflow.data.repository
 
+import android.text.Html
 import android.content.Context
 import android.util.Log
 import com.readflow.data.database.BookDao
@@ -159,12 +160,19 @@ class BookRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun stripHtml(html: String) = html
-        .replace(Regex("<head[^>]*>.*?</head>", RegexOption.DOT_MATCHES_ALL), "")
-        .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), "")
-        .replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), "")
-        .replace(Regex("<[^>]+>"), " ")
-        .replace(Regex("&nbsp;|&amp;|&lt;|&gt;|&quot;|&#?[a-z0-9]+;"), " ")
-        .replace(Regex("\\s+"), " ")
-        .trim()
+    @Suppress("DEPRECATION")
+    private fun stripHtml(html: String): String {
+        if (html.isEmpty()) return ""
+
+        // 1. Décode toutes les entités HTML (&#8217; -> ', &rsquo; -> ', etc.)
+        // et extrait le texte brut en éliminant les balises structurelles
+        val decodedText = Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY).toString()
+
+        // 2. Nettoyage de la mise en forme sans détruire les sauts de ligne (\n)
+        return decodedText
+            .replace(Regex("[\\r\\t]"), "")        // Supprime les retours chariot et tabulations parasites
+            .replace(Regex(" {2,}"), " ")          // Fusionne les espaces doubles ou plus en un seul espace
+            .replace(Regex("\\n{3,}"), "\n\n")     // Limite les sauts de ligne consécutifs à 2 maximum
+            .trim()
+    }
 }
