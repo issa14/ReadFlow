@@ -46,8 +46,6 @@ import com.readflow.ui.screen.opds.OpdsScreen
 fun LibraryScreen(
     onBookClick: (String) -> Unit,
     onDebugClick: () -> Unit,
-    onStatsClick: () -> Unit = {},
-    onSyncClick: () -> Unit = {},
     onOpdsClick: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
@@ -145,10 +143,14 @@ fun LibraryScreen(
                             )
                         }
                         NavigationDestination.STATS -> {
-                            LaunchedEffect(Unit) { onStatsClick() }
+                            com.readflow.ui.screen.stats.StatsScreen(
+                                onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
+                            )
                         }
                         NavigationDestination.SYNC -> {
-                            LaunchedEffect(Unit) { onSyncClick() }
+                            com.readflow.ui.screen.sync.SyncSettingsScreen(
+                                onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
+                            )
                         }
                     }
                     } // end else (isLoading)

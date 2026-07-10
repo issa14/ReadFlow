@@ -40,7 +40,34 @@ fun OpdsScreen(
     val state by viewModel.uiState.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize()) {
-            when {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ── Barre d'outils OPDS interne ──
+            Surface(color = DarkBg, shadowElevation = 2.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (state.navigationStack.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.goBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour", tint = Color.White)
+                        }
+                    }
+                    Text(
+                        state.feed?.title ?: "Catalogues OPDS",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                    IconButton(onClick = { viewModel.toggleAddCatalog() }) {
+                        Icon(Icons.Default.Add, "Ajouter", tint = Color.White.copy(alpha = 0.6f))
+                    }
+                }
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                when {
                 state.isLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = AccentBlue)
@@ -83,7 +110,9 @@ fun OpdsScreen(
                     )
                 }
             }
-        }
+        } // Box.weight(1f)
+    } // Column
+    } // Box externe
 
     // ── Dialogue ajout catalogue ──
     if (state.showAddCatalog) {

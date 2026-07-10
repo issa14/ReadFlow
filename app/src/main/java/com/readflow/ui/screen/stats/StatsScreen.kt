@@ -42,28 +42,13 @@ fun StatsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Statistiques", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg)
-            )
-        },
-        containerColor = DarkBg
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
             // ── 1. Jauge d'objectif quotidien ──
             DailyGoalProgress(
                 progress = state.todayProgressFraction,
@@ -117,7 +102,6 @@ fun StatsScreen(
             // ── 4. Graphique WPM ──
             WpmChart(history = state.recentWpmHistory)
         }
-    }
 }
 
 // ─────────────────────────────────────────────────────

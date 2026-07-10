@@ -12,8 +12,6 @@ object Routes {
     const val READER = "reader/{bookId}"
     const val BOOKMARKS = "bookmarks/{bookId}/{bookTitle}"
     const val SEARCH = "search/{bookId}/{bookTitle}"
-    const val STATS = "stats"
-    const val SYNC = "sync"
     const val DEBUG = "debug"
 
     fun readerRoute(bookId: String) = "reader/$bookId"
@@ -37,12 +35,6 @@ fun ReadFlowNavGraph() {
                 },
                 onDebugClick = {
                     navController.navigate(Routes.DEBUG)
-                },
-                onStatsClick = {
-                    navController.navigate(Routes.STATS)
-                },
-                onSyncClick = {
-                    navController.navigate(Routes.SYNC)
                 }
             )
         }
@@ -101,20 +93,6 @@ fun ReadFlowNavGraph() {
                 bookTitle = bookTitle,
                 onBack = { navController.popBackStack() },
                 onNavigate = { _, _ -> navController.popBackStack() }
-            )
-        }
-
-        // ── Statistiques ───────────────────────────
-        composable(Routes.STATS) {
-            com.readflow.ui.screen.stats.StatsScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        // ── Synchronisation & Sauvegarde ────────────
-        composable(Routes.SYNC) {
-            com.readflow.ui.screen.sync.SyncSettingsScreen(
-                onBack = { navController.popBackStack() }
             )
         }
 

@@ -53,26 +53,11 @@ fun SyncSettingsScreen(
         uri?.let { viewModel.importFromUri(context, it) }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Synchronisation & Sauvegarde", color = Color.White) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg)
-            )
-        },
-        containerColor = DarkBg
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             // ── Section WebDAV ──
             SectionTitle("WebDAV (Nextcloud / Owncloud)")
@@ -236,7 +221,6 @@ fun SyncSettingsScreen(
 
             Spacer(Modifier.height(32.dp))
         }
-    }
 }
 
 @Composable
