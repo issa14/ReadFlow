@@ -6,6 +6,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.readflow.data.settings.AppTheme
+import com.readflow.ui.screen.settings.SettingsViewModel
 
 private val DarkColors = darkColorScheme(
     primary = DarkPrimary,
@@ -39,9 +42,17 @@ private val LightColors = lightColorScheme(
 
 @Composable
 fun ReadFlowTheme(
-    darkTheme: Boolean = true,  // toujours sombre par défaut
     content: @Composable () -> Unit
 ) {
+    val settingsVM: SettingsViewModel = hiltViewModel()
+    val themeState by settingsVM.uiState.collectAsState()
+
+    val darkTheme = when (themeState.theme) {
+        AppTheme.LIGHT -> false
+        AppTheme.DARK -> true
+        AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
+
     val scheme = if (darkTheme) DarkColors else LightColors
     val view = LocalView.current
     if (!view.isInEditMode) {

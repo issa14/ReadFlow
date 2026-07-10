@@ -503,6 +503,11 @@ class PlaybackOrchestrator @Inject constructor(
         sleepTimerRemaining.value = null
     }
 
+    /** Règle le gain audio logiciel (1.0f à 4.0f). */
+    fun setGain(gain: Float) {
+        player.gainMultiplier = gain.coerceIn(1.0f, 4.0f)
+    }
+
     fun stop() {
         saveSessionAsync()
         cancelSleepTimer()

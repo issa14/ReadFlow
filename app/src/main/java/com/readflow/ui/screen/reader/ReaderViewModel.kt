@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import com.readflow.data.database.AnnotationDao
 import com.readflow.data.database.HighlightDao
 import com.readflow.data.database.PronunciationRuleDao
+import com.readflow.data.settings.SettingsRepository
 import com.readflow.data.database.entity.AnnotationEntity
 import com.readflow.data.database.entity.HighlightEntity
 import com.readflow.data.database.entity.PronunciationRule
@@ -61,6 +62,7 @@ class ReaderViewModel @Inject constructor(
     private val pronunciationRuleDao: PronunciationRuleDao,
     private val annotationDao: AnnotationDao,
     private val highlightDao: HighlightDao,
+    private val settingsRepo: SettingsRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -179,6 +181,25 @@ class ReaderViewModel @Inject constructor(
                 }
                 // Persister la position pour Process Death
                 savedState["sentenceIndex"] = pbs.activeSentenceIndex
+            }
+        }
+
+        // Observer les settings globaux
+        viewModelScope.launch {
+            settingsRepo.voice.collect { voice ->
+                val sid = OnnxInferenceService.Voice.entries
+                    .find { it.label.contains(voice, true) }?.sid ?: 0
+                _uiState.update { it.copy(voice = sid) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepo.speed.collect { speed ->
+                _uiState.update { it.copy(speed = speed.coerceIn(0.5f, 2.0f)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepo.gain.collect { gain ->
+                orchestrator.setGain(gain)
             }
         }
     }

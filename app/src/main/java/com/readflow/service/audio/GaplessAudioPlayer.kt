@@ -27,9 +27,10 @@ class GaplessAudioPlayer @Inject constructor() {
 
     companion object {
         private const val TAG = "GaplessPlayer"
-        /** Multiplicateur de gain appliqué lors de la conversion float→int16. */
-        private const val GAIN_MULTIPLIER = 3.0f
     }
+
+    /** Multiplicateur de gain appliqué lors de la conversion float→int16. */
+    @Volatile var gainMultiplier: Float = 3.0f
 
     /**
      * Fréquence d'échantillonnage — doit correspondre au modèle TTS.
@@ -182,7 +183,7 @@ class GaplessAudioPlayer @Inject constructor() {
         val n = floatSamples.size
         val shortSamples = ShortArray(n)
         for (i in 0 until n) {
-            val pcmSample = (floatSamples[i] * 32767.0f * GAIN_MULTIPLIER).toInt()
+            val pcmSample = (floatSamples[i] * 32767.0f * gainMultiplier).toInt()
             shortSamples[i] = pcmSample.coerceIn(-32768, 32767).toShort()
         }
 
