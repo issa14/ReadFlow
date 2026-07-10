@@ -39,36 +39,7 @@ fun OpdsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        state.feed?.title ?: "Catalogues OPDS",
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        if (state.navigationStack.isNotEmpty()) viewModel.goBack()
-                        else onBack()
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour", tint = Color.White)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.toggleAddCatalog() }) {
-                        Icon(Icons.Default.Add, "Ajouter catalogue", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg)
-            )
-        },
-        containerColor = DarkBg
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+    Box(modifier = Modifier.fillMaxSize()) {
             when {
                 state.isLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -113,7 +84,6 @@ fun OpdsScreen(
                 }
             }
         }
-    }
 
     // ── Dialogue ajout catalogue ──
     if (state.showAddCatalog) {

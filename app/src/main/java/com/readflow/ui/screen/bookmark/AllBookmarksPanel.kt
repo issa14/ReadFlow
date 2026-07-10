@@ -45,13 +45,6 @@ fun AllBookmarksPanel(
             .padding(horizontal = 20.dp)
             .padding(bottom = 32.dp)
     ) {
-        Text(
-            "Marque-pages & Notes",
-            color = Color.White.copy(alpha = 0.85f),
-            style = MaterialTheme.typography.titleSmall
-        )
-        Spacer(Modifier.height(12.dp))
-
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
