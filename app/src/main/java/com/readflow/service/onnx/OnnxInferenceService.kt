@@ -8,6 +8,10 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.readflow.domain.model.SynthesisResult
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,6 +35,16 @@ class OnnxInferenceService @Inject constructor(
 
     @Volatile private var tts: OfflineTts? = null
 
+    /** true lorsque le modèle ONNX est chargé et prêt pour l'inférence. */
+    @Volatile var isInitialized: Boolean = false
+        private set
+
+    /** true pendant l'initialisation (évite les double-init concurrents). */
+    @Volatile private var isInitializing: Boolean = false
+
+    /** Mutex pour sérialiser l'initialisation. */
+    private val initMutex = Mutex()
+
     /** Piper VITS : modèle mono-locuteur français. */
     enum class Voice(val sid: Int, val label: String) {
         MIRO(0, "Miro (FR high)"),
@@ -38,9 +52,26 @@ class OnnxInferenceService @Inject constructor(
 
     // ── API publique ───────────────────────────────────────────────
 
-    fun initialize() {
-        if (tts != null) return
+    /**
+     * Initialise le modèle ONNX en arrière-plan (Dispatchers.IO).
+     *
+     * Idempotente : si déjà initialisé, retourne immédiatement.
+     * Thread-safe via Mutex.
+     */
+    suspend fun initialize() = initMutex.withLock {
+        if (isInitialized || isInitializing) return
+        isInitializing = true
+        try {
+            withContext(Dispatchers.IO) {
+                doInitialize()
+            }
+            isInitialized = true
+        } finally {
+            isInitializing = false
+        }
+    }
 
+    private fun doInitialize() {
         try {
             // 1. Vérification d'intégrité du modèle ONNX
             if (!isModelAvailable()) {
@@ -117,7 +148,24 @@ class OnnxInferenceService @Inject constructor(
             voice.label, elapsedMs, durationMs)
     }
 
-    fun release() { tts?.release(); tts = null }
+    /**
+     * Libère le modèle ONNX et les ressources natives.
+     *
+     * Appelée par [AudioPlaybackService.onDestroy] lors de la destruction
+     * du service (pas à chaque pause de lecture). Le modèle devra être
+     * ré-initialisé via [initialize] avant la prochaine utilisation.
+     */
+    fun release() {
+        Log.i(TAG, "Libération du modèle ONNX...")
+        try {
+            tts?.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Erreur libération TTS: ${e.message}", e)
+        }
+        tts = null
+        isInitialized = false
+        Log.i(TAG, "Modèle ONNX libéré")
+    }
 
     fun getSampleRate(): Int = tts?.sampleRate() ?: 22050
 

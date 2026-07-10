@@ -34,6 +34,7 @@ fun ReaderScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val playbackState by viewModel.playbackState.collectAsState()
+    val ttsStatus by viewModel.ttsStatus.collectAsState()
     val chapter = state.currentChapter
     val book = state.book
 
@@ -109,6 +110,78 @@ fun ReaderScreen(
                     .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
                     .padding(bottom = 8.dp)
             )
+        }
+
+        // ── Statut TTS : chargement du modèle ONNX ────
+        if (ttsStatus is TtsStatus.Initializing) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF1E1E1E).copy(alpha = 0.92f),
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        color = accentColor,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "Préparation de la voix...",
+                        color = textColor.copy(alpha = 0.8f),
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
+        // ── Erreur TTS : carte avec bouton Réessayer ──
+        val ttsErr = ttsStatus as? TtsStatus.Error
+        if (ttsErr != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(32.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF2A1A1A),
+                shadowElevation = 12.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("⚠️", fontSize = 28.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Moteur vocal indisponible",
+                        color = Color.White,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        ttsErr.message,
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 12.sp,
+                        maxLines = 3
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.retryTtsInit() },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = accentColor
+                        )
+                    ) {
+                        Text("Réessayer", fontSize = 13.sp)
+                    }
+                }
+            }
         }
 
         // ── TopBar (overlay) ─────────────────────────

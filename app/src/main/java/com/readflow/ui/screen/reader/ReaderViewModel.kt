@@ -27,9 +27,28 @@ import com.readflow.service.audio.PlaybackStatus
 import com.readflow.service.onnx.OnnxInferenceService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/**
+ * Statut du modèle TTS ONNX.
+ *
+ * Exposé par [ReaderViewModel.ttsStatus] pour que l'UI affiche
+ * un indicateur de chargement ou un message d'erreur si le modèle
+ * n'a pas pu être chargé.
+ */
+sealed class TtsStatus {
+    /** Modèle non initialisé. */
+    data object Uninitialized : TtsStatus()
+    /** Chargement du modèle ONNX en cours (sur Dispatchers.IO). */
+    data object Initializing : TtsStatus()
+    /** Modèle chargé et prêt. */
+    data object Ready : TtsStatus()
+    /** Erreur lors du chargement. */
+    data class Error(val message: String) : TtsStatus()
+}
 
 data class ReaderUiState(
     val book: Book? = null,
@@ -68,6 +87,12 @@ class ReaderViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
+
+    /** Statut du modèle TTS ONNX (initialisation, chargement, erreur). */
+    private val _ttsStatus = MutableStateFlow<TtsStatus>(
+        if (onnxService.isInitialized) TtsStatus.Ready else TtsStatus.Uninitialized
+    )
+    val ttsStatus: StateFlow<TtsStatus> = _ttsStatus.asStateFlow()
 
     /**
      * État de lecture détaillé pour la synchronisation visuelle (Phase 2).
@@ -145,15 +170,48 @@ class ReaderViewModel @Inject constructor(
     fun setTheme(theme: ReaderTheme) { _uiState.update { it.copy(readerTheme = theme) } }
     fun toggleOpenDyslexic() { _uiState.update { it.copy(useOpenDyslexic = !it.useOpenDyslexic) } }
 
-    init {
-        // P1: Initialiser le moteur TTS silencieusement dès l'ouverture du lecteur
-        viewModelScope.launch {
+    /**
+     * Relance l'initialisation du modèle TTS après un échec.
+     *
+     * Appelée depuis le bouton "Réessayer" affiché par [ReaderScreen]
+     * lorsque le statut TTS est [TtsStatus.Error].
+     */
+    fun retryTtsInit() {
+        if (onnxService.isInitialized) {
+            _ttsStatus.value = TtsStatus.Ready
+            _uiState.update { it.copy(error = null) }
+            return
+        }
+        _ttsStatus.value = TtsStatus.Initializing
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 onnxService.initialize()
+                _ttsStatus.value = TtsStatus.Ready
+                _uiState.update { it.copy(error = null) }
             } catch (e: Exception) {
-                Log.e("ReaderVM", "Échec initialisation ONNX: ${e.message}", e)
+                Log.e("ReaderVM", "Retry échec ONNX: ${e.message}", e)
+                _ttsStatus.value = TtsStatus.Error(e.message ?: "Erreur inconnue")
                 _uiState.update { it.copy(error = "Échec du moteur TTS : ${e.message}") }
             }
+        }
+    }
+
+    init {
+        // P1: Initialiser le modèle TTS sur Dispatchers.IO (non-bloquant)
+        if (!onnxService.isInitialized) {
+            _ttsStatus.value = TtsStatus.Initializing
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    onnxService.initialize()
+                    _ttsStatus.value = TtsStatus.Ready
+                } catch (e: Exception) {
+                    Log.e("ReaderVM", "Échec initialisation ONNX: ${e.message}", e)
+                    _ttsStatus.value = TtsStatus.Error(e.message ?: "Erreur inconnue")
+                    _uiState.update { it.copy(error = "Échec du moteur TTS : ${e.message}") }
+                }
+            }
+        } else {
+            _ttsStatus.value = TtsStatus.Ready
         }
 
         // Observer l'orchestrateur pour synchroniser l'UI
@@ -368,7 +426,9 @@ class ReaderViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        // Stop seulement (ne pas release — le service gère le cycle de vie complet)
         orchestrator.stop()
+        // Note : onnxService.release() est appelé dans AudioPlaybackService.onDestroy()
     }
 
     // P3: Avancer automatiquement au chapitre suivant si on est à la dernière phrase

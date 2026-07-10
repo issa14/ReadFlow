@@ -70,6 +70,7 @@ class AudioPlaybackService : MediaSessionService() {
 
     @Inject lateinit var orchestrator: PlaybackOrchestrator
     @Inject lateinit var audioFocusManager: AudioFocusManager
+    @Inject lateinit var onnxService: com.readflow.service.onnx.OnnxInferenceService
 
     private var mediaSession: MediaSession? = null
     private var readFlowPlayer: ReadFlowPlayer? = null
@@ -148,10 +149,10 @@ class AudioPlaybackService : MediaSessionService() {
         cancelPauseTimeout()
         serviceScope.cancel()
 
-        // Libération ordonnée : SimpleBasePlayer.release() (final) → cleanup → MediaSession → AudioFocus
+        // Libération ordonnée : Player → MediaSession → AudioFocus → Orchestrator → ONNX
         try {
-            readFlowPlayer?.release()   // SimpleBasePlayer.release() — final, gère le cycle Media3
-            readFlowPlayer?.cleanup()   // Nettoie l'état interne (flags @Volatile)
+            readFlowPlayer?.release()
+            readFlowPlayer?.cleanup()
         } catch (e: Exception) {
             Log.e(TAG, "Erreur libération ReadFlowPlayer: ${e.message}", e)
         }
@@ -165,6 +166,18 @@ class AudioPlaybackService : MediaSessionService() {
         mediaSession = null
 
         audioFocusManager.abandonFocus()
+
+        try {
+            orchestrator.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Erreur libération orchestrator: ${e.message}", e)
+        }
+
+        try {
+            onnxService.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Erreur libération ONNX: ${e.message}", e)
+        }
 
         super.onDestroy()
     }

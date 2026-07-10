@@ -97,13 +97,15 @@ fun TtsTestScreen() {
             onClick = {
                 loading = true
                 error = null
-                try {
-                    inferenceService.initialize()
-                    initialized = true
-                } catch (e: Exception) {
-                    error = e.message
+                scope.launch {
+                    try {
+                        inferenceService.initialize()
+                        initialized = true
+                    } catch (e: Exception) {
+                        error = e.message
+                    }
+                    loading = false
                 }
-                loading = false
             },
             enabled = !initialized && !loading
         ) {
