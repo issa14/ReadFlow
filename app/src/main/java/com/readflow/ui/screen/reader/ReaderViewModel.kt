@@ -89,7 +89,7 @@ class ReaderViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Minuteur de mise en veille ──
-    val sleepTimerRemaining: StateFlow<Long?> = orchestrator.sleepTimerRemaining
+    val sleepTimerRemaining: StateFlow<Int?> = orchestrator.sleepTimerRemaining
 
     // ── Surlignages (HighlightEntity) ──
     private val _bookIdFlow = MutableStateFlow<String?>(null)
@@ -199,7 +199,8 @@ class ReaderViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsRepo.gain.collect { gain ->
-                orchestrator.setGain(gain)
+                // Le gain est géré par GaplessAudioPlayer (GAIN_MULTIPLIER fixe 3x)
+                // setVolume() est utilisé pour le ducking audio
             }
         }
     }
@@ -348,8 +349,7 @@ class ReaderViewModel @Inject constructor(
             bookTitle = book.title,
             chapterTitle = chapter.title,
             bookId = book.id,
-            chapterIndex = s.currentChapterIndex,
-            totalChapters = book.totalChapters
+            chapterIndex = s.currentChapterIndex
         )
         _uiState.update { it.copy(isPlaying = true) }
     }

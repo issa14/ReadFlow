@@ -179,7 +179,7 @@ fun ReaderScreen(
                 onVoiceChange = { viewModel.setVoice(it) },
                 currentSpeed = state.speed,
                 currentVoice = state.voice,
-                sleepTimerRemaining = sleepRemaining?.toInt(),
+                sleepTimerRemaining = sleepRemaining,
                 onStartSleepTimer = { viewModel.startSleepTimer(it) },
                 onCancelSleepTimer = { viewModel.cancelSleepTimer() },
                 pronunciationRules = rules,

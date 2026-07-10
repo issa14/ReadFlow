@@ -5,9 +5,9 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,10 +27,9 @@ class GaplessAudioPlayer @Inject constructor() {
 
     companion object {
         private const val TAG = "GaplessPlayer"
+        /** Multiplicateur de gain appliqué lors de la conversion float→int16. */
+        private const val GAIN_MULTIPLIER = 3.0f
     }
-
-    /** Multiplicateur de gain appliqué lors de la conversion float→int16. */
-    @Volatile var gainMultiplier: Float = 3.0f
 
     /**
      * Fréquence d'échantillonnage — doit correspondre au modèle TTS.
@@ -46,7 +45,8 @@ class GaplessAudioPlayer @Inject constructor() {
     }
 
     private var track: AudioTrack? = null
-    private val queue = ConcurrentLinkedQueue<FloatArray>()
+    // Utilisation d'un Channel avec une capacité de 2 pour pré-charger N+1 pendant la lecture de N.
+    private var queue = Channel<FloatArray>(2)
     private var job: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -61,13 +61,13 @@ class GaplessAudioPlayer @Inject constructor() {
     @Volatile var currentVolume: Float = 1.0f
         private set
 
-    /** Ajoute un segment audio à la file de lecture. */
-    fun enqueue(samples: FloatArray) {
-        queue.add(samples)
+    /** Ajoute un segment audio à la file de lecture (bloquant si la file est pleine). */
+    suspend fun enqueue(samples: FloatArray) {
+        queue.send(samples)
     }
 
     /** Nombre de segments en attente. */
-    val pendingCount: Int get() = queue.size
+    val pendingCount: Int get() = 0 // Pas supporté tel quel par Channel de manière précise
 
     /** Règle le volume de la piste audio (0.0 = silence, 1.0 = max). */
     fun setVolume(volume: Float) {
@@ -102,11 +102,12 @@ class GaplessAudioPlayer @Inject constructor() {
             ensureTrack()
 
             while (isActive && _state.value == State.Playing) {
-                val samples = queue.poll()
+                // receive() va suspendre jusqu'à ce qu'un chunk soit disponible
+                val samples = queue.receiveCatching().getOrNull()
                 if (samples != null) {
                     writeBlocking(samples)
                     completedCount++
-                    Log.d(TAG, "completed=$completedCount, pending=${queue.size}")
+                    Log.d(TAG, "completed=$completedCount")
                 } else {
                     delay(50)
                 }
@@ -118,7 +119,8 @@ class GaplessAudioPlayer @Inject constructor() {
     fun stop() {
         _state.value = State.Stopped
         job?.cancel()
-        queue.clear()
+        queue.cancel()
+        queue = Channel(2)
         track?.let { t ->
             try {
                 if (t.state == AudioTrack.STATE_INITIALIZED) {
@@ -183,7 +185,7 @@ class GaplessAudioPlayer @Inject constructor() {
         val n = floatSamples.size
         val shortSamples = ShortArray(n)
         for (i in 0 until n) {
-            val pcmSample = (floatSamples[i] * 32767.0f * gainMultiplier).toInt()
+            val pcmSample = (floatSamples[i] * 32767.0f * GAIN_MULTIPLIER).toInt()
             shortSamples[i] = pcmSample.coerceIn(-32768, 32767).toShort()
         }
 

@@ -184,6 +184,9 @@ class AudioPlaybackService : MediaSessionService() {
                         cancelPauseTimeout()
                         updateNotification("ReadFlow", "Prêt", isPlaying = false)
                     }
+                    is State.Loading -> {
+                        // Buffering / chargement — ne rien faire, garder l'état précédent
+                    }
                     is State.Playing -> {
                         cancelPauseTimeout()
                         ensureForeground()
