@@ -45,6 +45,7 @@ import com.readflow.ui.screen.library.NavigationDestination
 fun LibraryScreen(
     onBookClick: (String) -> Unit,
     onDebugClick: () -> Unit,
+    onStatsClick: () -> Unit = {},
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -128,6 +129,9 @@ fun LibraryScreen(
                         NavigationDestination.OPDS,
                         NavigationDestination.BOOKMARKS -> {
                             ComingSoonPlaceholder(state.currentDestination.label)
+                        }
+                        NavigationDestination.STATS -> {
+                            LaunchedEffect(Unit) { onStatsClick() }
                         }
                     }
                     } // end else (isLoading)

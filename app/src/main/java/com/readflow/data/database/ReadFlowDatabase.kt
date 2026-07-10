@@ -11,6 +11,7 @@ import com.readflow.data.database.entity.HighlightEntity
 import com.readflow.data.database.entity.ProgressEntity
 import com.readflow.data.database.entity.PronunciationRule
 import com.readflow.data.database.entity.ReadingProgress
+import com.readflow.data.database.entity.ReadingSessionEntity
 import com.readflow.data.database.entity.SentenceCacheEntity
 import com.readflow.data.database.entity.SentenceFts
 
@@ -60,9 +61,10 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         SentenceCacheEntity::class,
         PronunciationRule::class,
         AnnotationEntity::class,
-        HighlightEntity::class
+        HighlightEntity::class,
+        ReadingSessionEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class ReadFlowDatabase : RoomDatabase() {
@@ -75,4 +77,5 @@ abstract class ReadFlowDatabase : RoomDatabase() {
     abstract fun pronunciationRuleDao(): PronunciationRuleDao
     abstract fun annotationDao(): AnnotationDao
     abstract fun highlightDao(): HighlightDao
+    abstract fun readingSessionDao(): ReadingSessionDao
 }

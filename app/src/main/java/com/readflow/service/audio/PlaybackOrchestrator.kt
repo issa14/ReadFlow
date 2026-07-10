@@ -2,7 +2,9 @@ package com.readflow.service.audio
 
 import android.util.Log
 import com.readflow.data.database.ReadingProgressDao
+import com.readflow.data.database.ReadingSessionDao
 import com.readflow.data.database.entity.ReadingProgress
+import com.readflow.data.database.entity.ReadingSessionEntity
 import com.readflow.domain.model.Sentence
 import com.readflow.domain.model.SynthesisResult
 import com.readflow.domain.repository.TtsRepository
@@ -11,6 +13,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.text.SimpleDateFormat
+import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -68,7 +72,8 @@ class PlaybackOrchestrator @Inject constructor(
     private val player: GaplessAudioPlayer,
     private val onnxService: OnnxInferenceService,
     private val audioFocusManager: AudioFocusManager,
-    private val progressDao: ReadingProgressDao
+    private val progressDao: ReadingProgressDao,
+    private val sessionDao: ReadingSessionDao
 ) : AudioFocusListener {
 
     companion object {
@@ -124,6 +129,10 @@ class PlaybackOrchestrator @Inject constructor(
     @Volatile var currentChapterTitle: String = ""
     @Volatile var currentVoice: Int = 0
     @Volatile var currentSpeed: Float = 1.0f
+
+    // ── Session de lecture (Phase 7: Stats) ────────
+    @Volatile private var sessionStartTimeMs: Long = 0L
+    @Volatile private var sessionWordsRead: Int = 0
 
     // Identité du livre/chapitre en cours, pour la persistance de progression
     @Volatile private var currentBookId: String? = null
@@ -263,6 +272,10 @@ class PlaybackOrchestrator @Inject constructor(
         currentTotalSentences = sentences.size
         currentSentences = sentences
 
+        // ── Initialiser la session de lecture (Phase 7: Stats) ──
+        sessionStartTimeMs = System.currentTimeMillis()
+        sessionWordsRead = 0
+
         val total = sentences.size
         _progress.value = Progress(startFrom, total, sentences.getOrNull(startFrom))
         _state.value = State.Playing
@@ -326,6 +339,13 @@ class PlaybackOrchestrator @Inject constructor(
                                     val currentSentence = sentences.getOrNull(sentenceIdx - 1)
                                     currentReadIdx = sentenceIdx
                                     currentSentenceIdx = sentenceIdx
+
+                                    // ── Comptage des mots lus (Phase 7: Stats) ──
+                                    val words = currentSentence?.text
+                                        ?.split(Regex("\\s+"))
+                                        ?.count { it.isNotBlank() } ?: 0
+                                    sessionWordsRead += words
+
                                     _progress.value = Progress(
                                         sentenceIdx, total, currentSentence)
 
@@ -405,6 +425,7 @@ class PlaybackOrchestrator @Inject constructor(
     }
 
     fun pause() {
+        saveSessionAsync()
         _state.value = State.Paused
         player.pause()
         updatePlaybackState(
@@ -483,6 +504,7 @@ class PlaybackOrchestrator @Inject constructor(
     }
 
     fun stop() {
+        saveSessionAsync()
         cancelSleepTimer()
         currentJob?.cancel()
         player.stop()
@@ -498,6 +520,7 @@ class PlaybackOrchestrator @Inject constructor(
     }
 
     fun release() {
+        saveSessionAsync()
         cancelSleepTimer()
         stop()
         scope.cancel()
@@ -553,6 +576,41 @@ class PlaybackOrchestrator @Inject constructor(
                 Log.e(TAG, "Échec sauvegarde progression: ${e.message}", e)
             }
         }
+    }
+
+    // ── Session de lecture (Phase 7: Stats) ────────
+
+    private fun saveSessionAsync() {
+        scope.launch(Dispatchers.IO) {
+            saveCurrentSession()
+        }
+    }
+
+    private suspend fun saveCurrentSession() {
+        if (sessionStartTimeMs <= 0L) return
+        val durationSeconds = (System.currentTimeMillis() - sessionStartTimeMs) / 1000
+        if (durationSeconds < 5) { // Ignorer les micro-sessions
+            sessionStartTimeMs = 0L
+            sessionWordsRead = 0
+            return
+        }
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val bookId = currentBookId ?: return
+        try {
+            sessionDao.insertSession(
+                ReadingSessionEntity(
+                    bookId = bookId,
+                    date = dateStr,
+                    durationSeconds = durationSeconds,
+                    wordsRead = sessionWordsRead
+                )
+            )
+            Log.d(TAG, "Session sauvegardée: ${durationSeconds}s, ${sessionWordsRead} mots")
+        } catch (e: Exception) {
+            Log.e(TAG, "Échec sauvegarde session: ${e.message}", e)
+        }
+        sessionStartTimeMs = 0L
+        sessionWordsRead = 0
     }
 }
 
