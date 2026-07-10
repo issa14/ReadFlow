@@ -93,6 +93,12 @@ class PlaybackOrchestrator @Inject constructor(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // ── Minuteur de mise en veille ──────────────────
+
+    /** Temps restant du minuteur de sommeil en millisecondes, null si inactif. */
+    val sleepTimerRemaining = MutableStateFlow<Long?>(null)
+    private var sleepTimerJob: Job? = null
+
     // ── Flows exposés ────────────────────────────────
 
     private val _state = MutableStateFlow<State>(State.Idle)
@@ -420,7 +426,64 @@ class PlaybackOrchestrator @Inject constructor(
         )
     }
 
+    // ── Minuteur de mise en veille ──────────────────
+
+    /**
+     * Démarre un minuteur de mise en veille.
+     *
+     * À expiration, met la lecture en pause avec un fondu audio progressif
+     * sur les 15 dernières secondes pour éviter une coupure brusque.
+     */
+    fun startSleepTimer(minutes: Int) {
+        cancelSleepTimer()
+
+        val totalMs = minutes * 60 * 1000L
+        val fadeOutDurationMs = 15_000L  // 15 dernières secondes
+        sleepTimerRemaining.value = totalMs
+
+        sleepTimerJob = scope.launch {
+            val startTime = System.currentTimeMillis()
+            val endTime = startTime + totalMs
+
+            try {
+                while (isActive) {
+                    val now = System.currentTimeMillis()
+                    val remaining = endTime - now
+
+                    if (remaining <= 0) {
+                        // Expiration : pause + réinitialisation volume
+                        player.setVolume(1.0f)
+                        pause()
+                        sleepTimerRemaining.value = null
+                        break
+                    }
+
+                    sleepTimerRemaining.value = remaining
+
+                    // Fondu audio pendant les 15 dernières secondes
+                    if (remaining <= fadeOutDurationMs && _state.value is State.Playing) {
+                        val volume = (remaining.toFloat() / fadeOutDurationMs).coerceIn(0f, 1f)
+                        player.setVolume(volume)
+                    }
+
+                    delay(1000L) // tick chaque seconde
+                }
+            } catch (e: CancellationException) {
+                // Minuteur annulé, on ne fait rien
+            }
+        }
+    }
+
+    /** Annule le minuteur de mise en veille et restaure le volume. */
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        player.setVolume(1.0f)
+        sleepTimerRemaining.value = null
+    }
+
     fun stop() {
+        cancelSleepTimer()
         currentJob?.cancel()
         player.stop()
         audioFocusManager.abandonFocus()
@@ -435,6 +498,7 @@ class PlaybackOrchestrator @Inject constructor(
     }
 
     fun release() {
+        cancelSleepTimer()
         stop()
         scope.cancel()
         player.release()

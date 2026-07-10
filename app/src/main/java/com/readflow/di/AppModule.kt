@@ -8,6 +8,7 @@ import com.readflow.data.database.MIGRATION_1_2
 import com.readflow.data.database.MIGRATION_2_3
 import com.readflow.data.database.MIGRATION_3_4
 import com.readflow.data.database.ProgressDao
+import com.readflow.data.database.PronunciationRuleDao
 import com.readflow.data.database.ReadFlowDatabase
 import com.readflow.data.database.ReadingProgressDao
 import com.readflow.data.database.SearchDao
@@ -56,6 +57,9 @@ object AppModule {
 
     @Provides
     fun provideSentenceCacheDao(db: ReadFlowDatabase): SentenceCacheDao = db.sentenceCacheDao()
+
+    @Provides
+    fun providePronunciationRuleDao(db: ReadFlowDatabase): PronunciationRuleDao = db.pronunciationRuleDao()
 
     @Provides
     @Singleton

@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.readflow.data.database.entity.BookEntity
 import com.readflow.data.database.entity.BookmarkEntity
 import com.readflow.data.database.entity.ProgressEntity
+import com.readflow.data.database.entity.PronunciationRule
 import com.readflow.data.database.entity.ReadingProgress
 import com.readflow.data.database.entity.SentenceCacheEntity
 import com.readflow.data.database.entity.SentenceFts
@@ -54,9 +55,10 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         BookmarkEntity::class,
         SentenceFts::class,
         ReadingProgress::class,
-        SentenceCacheEntity::class
+        SentenceCacheEntity::class,
+        PronunciationRule::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class ReadFlowDatabase : RoomDatabase() {
@@ -66,4 +68,5 @@ abstract class ReadFlowDatabase : RoomDatabase() {
     abstract fun searchDao(): SearchDao
     abstract fun readingProgressDao(): ReadingProgressDao
     abstract fun sentenceCacheDao(): SentenceCacheDao
+    abstract fun pronunciationRuleDao(): PronunciationRuleDao
 }

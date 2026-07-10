@@ -10,6 +10,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.readflow.data.database.PronunciationRuleDao
+import com.readflow.data.database.entity.PronunciationRule
 import com.readflow.domain.model.Book
 import com.readflow.domain.model.Chapter
 import com.readflow.domain.repository.BookRepository
@@ -51,6 +53,7 @@ class ReaderViewModel @Inject constructor(
     private val bookRepository: BookRepository,
     private val orchestrator: PlaybackOrchestrator,
     private val onnxService: OnnxInferenceService,
+    private val pronunciationRuleDao: PronunciationRuleDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -70,6 +73,14 @@ class ReaderViewModel @Inject constructor(
      * via un `LaunchedEffect` sur `playbackState.activeSentenceIndex`.
      */
     val playbackState: StateFlow<PlaybackState> = orchestrator.playbackState
+
+    // ── Dictionnaire de prononciation ──
+    val pronunciationRules: StateFlow<List<PronunciationRule>> =
+        pronunciationRuleDao.getAllRulesFlow()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ── Minuteur de mise en veille ──
+    val sleepTimerRemaining: StateFlow<Long?> = orchestrator.sleepTimerRemaining
 
     private var currentBook: Book? = null
     private var isPausedForResume = false
@@ -313,6 +324,42 @@ class ReaderViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    // ── Minuteur de mise en veille ──────────────────
+
+    fun startSleepTimer(minutes: Int) {
+        orchestrator.startSleepTimer(minutes)
+    }
+
+    fun cancelSleepTimer() {
+        orchestrator.cancelSleepTimer()
+    }
+
+    // ── Dictionnaire de prononciation ───────────────
+
+    fun addPronunciationRule(pattern: String, replacement: String, isRegex: Boolean) {
+        viewModelScope.launch {
+            pronunciationRuleDao.insertRule(
+                PronunciationRule(
+                    pattern = pattern,
+                    replacement = replacement,
+                    isRegex = isRegex
+                )
+            )
+        }
+    }
+
+    fun deletePronunciationRule(rule: PronunciationRule) {
+        viewModelScope.launch {
+            pronunciationRuleDao.deleteRule(rule)
+        }
+    }
+
+    fun togglePronunciationRule(rule: PronunciationRule) {
+        viewModelScope.launch {
+            pronunciationRuleDao.toggleRuleActive(rule.id, !rule.isActive)
+        }
     }
 }
 

@@ -4,7 +4,7 @@ import android.app.Activity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
@@ -42,6 +42,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.readflow.data.database.entity.PronunciationRule
 import com.readflow.domain.model.Chapter
 import com.readflow.service.audio.PlaybackState
 import com.readflow.service.audio.PlaybackStatus
@@ -176,7 +177,8 @@ fun ReaderScreen(
                 onThemeCycle = { viewModel.cycleTheme() },
                 onFontToggle = { viewModel.toggleOpenDyslexic() },
                 onPrevChapter = { viewModel.previousChapter() },
-                onNextChapter = { viewModel.nextChapter() }
+                onNextChapter = { viewModel.nextChapter() },
+                onSettingsClick = { viewModel.showTtsSheet() }
             )
         }
     }
@@ -202,7 +204,18 @@ fun ReaderScreen(
                 onSpeedChange = { viewModel.setSpeed(it) },
                 onVoiceChange = { viewModel.setVoice(it) },
                 currentSpeed = state.speed,
-                currentVoice = state.voice
+                currentVoice = state.voice,
+                // Sleep timer
+                sleepTimerRemaining = viewModel.sleepTimerRemaining.collectAsState().value,
+                onStartSleepTimer = { viewModel.startSleepTimer(it) },
+                onCancelSleepTimer = { viewModel.cancelSleepTimer() },
+                // Pronunciation
+                pronunciationRules = viewModel.pronunciationRules.collectAsState().value,
+                onAddRule = { pattern, replacement, isRegex ->
+                    viewModel.addPronunciationRule(pattern, replacement, isRegex)
+                },
+                onDeleteRule = { viewModel.deletePronunciationRule(it) },
+                onToggleRule = { viewModel.togglePronunciationRule(it) }
             )
         }
     }
@@ -339,7 +352,8 @@ private fun UnifiedControlPanel(
     onThemeCycle: () -> Unit,
     onFontToggle: () -> Unit,
     onPrevChapter: () -> Unit,
-    onNextChapter: () -> Unit
+    onNextChapter: () -> Unit,
+    onSettingsClick: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -380,6 +394,13 @@ private fun UnifiedControlPanel(
                     Text("D",
                         color = if (useOpenDyslexic) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
                         fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+                // Réglages TTS
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        Icons.Outlined.Headphones, "Réglages vocaux",
+                        tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp)
+                    )
                 }
             }
 
@@ -537,6 +558,7 @@ private fun ImmersiveText(
 //  PANNEAU TTS — Modal Bottom Sheet
 // ─────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TtsPanel(
     chapterTitle: String,
@@ -551,8 +573,19 @@ private fun TtsPanel(
     onSpeedChange: (Float) -> Unit,
     onVoiceChange: (Int) -> Unit,
     currentSpeed: Float,
-    currentVoice: Int
+    currentVoice: Int,
+    // ── Sleep timer ──
+    sleepTimerRemaining: Long? = null,
+    onStartSleepTimer: (Int) -> Unit = {},
+    onCancelSleepTimer: () -> Unit = {},
+    // ── Pronunciation ──
+    pronunciationRules: List<PronunciationRule> = emptyList(),
+    onAddRule: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    onDeleteRule: (PronunciationRule) -> Unit = {},
+    onToggleRule: (PronunciationRule) -> Unit = {}
 ) {
+    var showAddRuleDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -657,8 +690,315 @@ private fun TtsPanel(
                 )
             )
         }
+
+        Spacer(Modifier.height(4.dp))
+
+        HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+
+        // ── SECTION : Minuteur de mise en veille ────
+        SleepTimerSection(
+            sleepTimerRemaining = sleepTimerRemaining,
+            onStart = onStartSleepTimer,
+            onCancel = onCancelSleepTimer
+        )
+
+        HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+
+        // ── SECTION : Dictionnaire de prononciation ──
+        PronunciationSection(
+            rules = pronunciationRules,
+            onAddClick = { showAddRuleDialog = true },
+            onDelete = onDeleteRule,
+            onToggle = onToggleRule
+        )
+
+        Spacer(Modifier.height(16.dp))
+    }
+
+    // ── Dialogue d'ajout de règle ──
+    if (showAddRuleDialog) {
+        AddPronunciationRuleDialog(
+            onDismiss = { showAddRuleDialog = false },
+            onConfirm = { pattern, replacement, isRegex ->
+                onAddRule(pattern, replacement, isRegex)
+                showAddRuleDialog = false
+            }
+        )
     }
 }
+
+// ─────────────────────────────────────────────────────
+//  SECTION : Minuteur de mise en veille
+// ─────────────────────────────────────────────────────
+
+@Composable
+private fun SleepTimerSection(
+    sleepTimerRemaining: Long?,
+    onStart: (Int) -> Unit,
+    onCancel: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Bedtime, "Sommeil",
+                tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Minuteur de sommeil",
+                color = Color.White.copy(alpha = 0.7f),
+                style = MaterialTheme.typography.labelLarge)
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        if (sleepTimerRemaining != null) {
+            // Compte à rebours actif
+            val totalSecs = sleepTimerRemaining / 1000
+            val minutes = (totalSecs / 60).toInt()
+            val seconds = (totalSecs % 60).toInt()
+            val display = "%02d:%02d".format(minutes, seconds)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Mise en veille dans $display",
+                    color = Color(0xFFFFB74D),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                TextButton(onClick = onCancel) {
+                    Text("✕ Annuler", color = Color.White.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        } else {
+            // Boutons de préréglages
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(15, 30, 45, 60).forEach { mins ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onStart(mins) },
+                        label = {
+                            Text("${mins} min",
+                                style = MaterialTheme.typography.labelSmall)
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = Color.White.copy(alpha = 0.08f),
+                            labelColor = Color.White.copy(alpha = 0.65f)
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────
+//  SECTION : Dictionnaire de prononciation
+// ─────────────────────────────────────────────────────
+
+@Composable
+private fun PronunciationSection(
+    rules: List<PronunciationRule>,
+    onAddClick: () -> Unit,
+    onDelete: (PronunciationRule) -> Unit,
+    onToggle: (PronunciationRule) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Translate, "Prononciation",
+                    tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Dictionnaire de prononciation",
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.labelLarge)
+            }
+            IconButton(onClick = onAddClick, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Add, "Ajouter une règle",
+                    tint = Color(0xFFFFB74D), modifier = Modifier.size(20.dp))
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        if (rules.isEmpty()) {
+            Text(
+                "Aucune règle. Ajoutez des corrections de prononciation.",
+                color = Color.White.copy(alpha = 0.3f),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        } else {
+            rules.forEach { rule ->
+                RuleItem(
+                    rule = rule,
+                    onToggle = { onToggle(rule) },
+                    onDelete = { onDelete(rule) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuleItem(
+    rule: PronunciationRule,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (rule.isRegex) "/${rule.pattern}/" else rule.pattern,
+                color = if (rule.isActive) Color.White.copy(alpha = 0.8f)
+                        else Color.White.copy(alpha = 0.3f),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "→ ${rule.replacement}",
+                color = Color.White.copy(alpha = 0.35f),
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+        Switch(
+            checked = rule.isActive,
+            onCheckedChange = { onToggle() },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color(0xFFFFB74D),
+                checkedTrackColor = Color(0xFFFFB74D).copy(alpha = 0.4f)
+            ),
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Delete, "Supprimer",
+                tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────
+//  DIALOGUE : Ajout de règle de prononciation
+// ─────────────────────────────────────────────────────
+
+@Composable
+private fun AddPronunciationRuleDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (pattern: String, replacement: String, isRegex: Boolean) -> Unit
+) {
+    var pattern by remember { mutableStateOf("") }
+    var replacement by remember { mutableStateOf("") }
+    var isRegex by remember { mutableStateOf(false) }
+    var patternError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF252525),
+        title = {
+            Text("Nouvelle règle",
+                color = Color.White,
+                style = MaterialTheme.typography.titleSmall)
+        },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = pattern,
+                    onValueChange = {
+                        pattern = it
+                        patternError = false
+                    },
+                    label = { Text("Mot ou motif d'origine") },
+                    isError = patternError,
+                    supportingText = if (patternError) {
+                        { Text("Ce champ ne peut pas être vide") }
+                    } else null,
+                    singleLine = true,
+                    colors = darkTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = replacement,
+                    onValueChange = { replacement = it },
+                    label = { Text("Texte de remplacement") },
+                    singleLine = true,
+                    colors = darkTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = isRegex,
+                        onCheckedChange = { isRegex = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = Color(0xFFFFB74D),
+                            uncheckedColor = Color.White.copy(alpha = 0.4f)
+                        )
+                    )
+                    Text(
+                        "Expression régulière",
+                        color = Color.White.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.clickable { isRegex = !isRegex }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (pattern.isBlank()) {
+                    patternError = true
+                } else {
+                    onConfirm(pattern.trim(), replacement.trim(), isRegex)
+                }
+            }) {
+                Text("Ajouter", color = Color(0xFFFFB74D))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", color = Color.White.copy(alpha = 0.5f))
+            }
+        }
+    )
+}
+
+@Composable
+private fun darkTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = Color.White,
+    unfocusedTextColor = Color.White.copy(alpha = 0.7f),
+    focusedLabelColor = Color(0xFFFFB74D),
+    unfocusedLabelColor = Color.White.copy(alpha = 0.4f),
+    cursorColor = Color(0xFFFFB74D),
+    focusedBorderColor = Color(0xFFFFB74D),
+    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+    errorBorderColor = Color(0xFFFF6B6B),
+    errorLabelColor = Color(0xFFFF6B6B),
+    errorSupportingTextColor = Color(0xFFFF6B6B)
+)
 
 // ─────────────────────────────────────────────────────
 //  ÉTATS : chargement, erreur
