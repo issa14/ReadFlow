@@ -20,4 +20,12 @@ interface BookmarkDao {
 
     @Query("DELETE FROM bookmarks WHERE bookId = :bookId")
     suspend fun deleteAll(bookId: String)
+
+    /** Tous les marque-pages, tous livres confondus, triés par date. */
+    @Query("SELECT * FROM bookmarks ORDER BY createdAt DESC")
+    fun getAllBookmarks(): Flow<List<BookmarkEntity>>
+
+    /** Recherche dans le texte des marque-pages. */
+    @Query("SELECT * FROM bookmarks WHERE text LIKE '%' || :query || '%' ORDER BY createdAt DESC")
+    fun searchBookmarks(query: String): Flow<List<BookmarkEntity>>
 }

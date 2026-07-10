@@ -138,7 +138,10 @@ fun LibraryScreen(
                             OpdsScreen(onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) })
                         }
                         NavigationDestination.BOOKMARKS -> {
-                            ComingSoonPlaceholder(state.currentDestination.label)
+                            com.readflow.ui.screen.bookmark.AllBookmarksPanel(
+                                onNavigateToBook = { bookId -> onBookClick(bookId) },
+                                onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
+                            )
                         }
                         NavigationDestination.STATS -> {
                             LaunchedEffect(Unit) { onStatsClick() }

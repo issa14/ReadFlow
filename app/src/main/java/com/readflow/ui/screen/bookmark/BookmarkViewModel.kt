@@ -51,4 +51,17 @@ class BookmarkViewModel @Inject constructor(
             }
         }
     }
+
+    // ── Mode "Tous les livres" pour le drawer ──
+
+    fun loadAll(searchQuery: String = "") {
+        viewModelScope.launch {
+            val flow = if (searchQuery.isBlank()) {
+                bookmarkDao.getAllBookmarks()
+            } else {
+                bookmarkDao.searchBookmarks(searchQuery)
+            }
+            flow.collect { _bookmarks.value = it }
+        }
+    }
 }
