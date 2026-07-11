@@ -4,7 +4,6 @@ import android.app.Activity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -12,9 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -65,14 +62,10 @@ fun ReaderScreen(
         ReaderTheme.SEPIA -> Triple(Color(0xFFF4ECD8), Color(0xFF3C2F2F), Color(0xFFB65D30))
     }
 
-    // Taille de l'écran pour le tiers central
-    var screenSize by remember { mutableStateOf(IntSize.Zero) }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
-            .onSizeChanged { screenSize = it }
     ) {
         // ── COUCHE 0 : Texte (100% espace, jamais ne bouge) ─
         when {
@@ -84,16 +77,8 @@ fun ReaderScreen(
                 textColor = textColor,
                 accentColor = accentColor,
                 useOpenDyslexic = state.useOpenDyslexic,
-                onTap = { offset ->
-                    // Tiers central uniquement
-                    if (screenSize.width > 0) {
-                        val left = screenSize.width / 3f
-                        val right = 2f * screenSize.width / 3f
-                        if (offset.x in left..right) {
-                            viewModel.toggleHud()
-                        }
-                    }
-                }
+                onPageTurned = { viewModel.hideHud() },
+                onTap = { viewModel.toggleHud() }
             )
         }
 

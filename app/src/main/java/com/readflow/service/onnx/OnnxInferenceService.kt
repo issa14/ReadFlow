@@ -53,21 +53,27 @@ class OnnxInferenceService @Inject constructor(
     // ── API publique ───────────────────────────────────────────────
 
     /**
-     * Initialise le modèle ONNX en arrière-plan (Dispatchers.IO).
+     * Initialise le modèle ONNX en arrière-plan ([Dispatchers.IO]).
      *
      * Idempotente : si déjà initialisé, retourne immédiatement.
-     * Thread-safe via Mutex.
+     * Thread-safe via [Mutex] : le fast-path hors-mutex évite toute
+     * attente inutile après la première initialisation.
      */
-    suspend fun initialize() = initMutex.withLock {
-        if (isInitialized || isInitializing) return
-        isInitializing = true
-        try {
-            withContext(Dispatchers.IO) {
-                doInitialize()
+    suspend fun initialize() {
+        // Fast-path sans mutex : si déjà prêt, on ne bloque personne
+        if (isInitialized) return
+        initMutex.withLock {
+            // Double-check sous le mutex
+            if (isInitialized || isInitializing) return
+            isInitializing = true
+            try {
+                withContext(Dispatchers.IO) {
+                    doInitialize()
+                }
+                isInitialized = true
+            } finally {
+                isInitializing = false
             }
-            isInitialized = true
-        } finally {
-            isInitializing = false
         }
     }
 
@@ -120,13 +126,18 @@ class OnnxInferenceService @Inject constructor(
         }
     }
 
-    fun synthesize(
+    /**
+     * Synthétise un texte en audio PCM sur [Dispatchers.IO].
+     *
+     * @throws IllegalStateException si le modèle n'est pas initialisé.
+     */
+    suspend fun synthesize(
         text: String,
         voice: Voice = Voice.MIRO,
         speed: Float = 1.0f
-    ): SynthesisResult {
+    ): SynthesisResult = withContext(Dispatchers.IO) {
         val engine = tts
-            ?: throw IllegalStateException("TTS non initialisé.")
+            ?: throw IllegalStateException("TTS non initialisé. Appeler initialize() d'abord.")
 
         val cleaned = text
             .trim()
@@ -144,7 +155,7 @@ class OnnxInferenceService @Inject constructor(
 
         Log.i(TAG, "\"${cleaned.take(60)}\" → ${audio.samples.size} éch., " +
                 "${durationMs}ms, RTF=%.2f".format(rtf))
-        return SynthesisResult(audio.samples, audio.sampleRate, cleaned,
+        SynthesisResult(audio.samples, audio.sampleRate, cleaned,
             voice.label, elapsedMs, durationMs)
     }
 

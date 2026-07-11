@@ -198,7 +198,12 @@ class AudioPlaybackService : MediaSessionService() {
                         updateNotification("ReadFlow", "Prêt", isPlaying = false)
                     }
                     is State.Loading -> {
-                        // Buffering / chargement — ne rien faire, garder l'état précédent
+                        cancelPauseTimeout()
+                        ensureForeground()
+                        val title = orchestrator.currentChapterTitle.ifEmpty {
+                            orchestrator.currentBookTitle.ifEmpty { "ReadFlow" }
+                        }
+                        updateNotification(title, "Chargement...", isPlaying = true)
                     }
                     is State.Playing -> {
                         cancelPauseTimeout()

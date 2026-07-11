@@ -183,7 +183,7 @@ class ReaderViewModel @Inject constructor(
             return
         }
         _ttsStatus.value = TtsStatus.Initializing
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch {
             try {
                 onnxService.initialize()
                 _ttsStatus.value = TtsStatus.Ready
@@ -197,10 +197,11 @@ class ReaderViewModel @Inject constructor(
     }
 
     init {
-        // P1: Initialiser le modèle TTS sur Dispatchers.IO (non-bloquant)
+        // P1: Initialiser le modèle TTS sur Dispatchers.IO (non-bloquant).
+        //     initialize() est idempotente et gère son propre dispatch IO.
         if (!onnxService.isInitialized) {
             _ttsStatus.value = TtsStatus.Initializing
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch {
                 try {
                     onnxService.initialize()
                     _ttsStatus.value = TtsStatus.Ready
