@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -41,37 +40,32 @@ fun ReaderContent(
     playbackState: PlaybackState,
     textColor: Color,
     accentColor: Color,
-    readerFont: ReaderFont = ReaderFont.SERIF,
-    fontSizeSp: Float = 17f,
-    lineHeightEm: Float = 1.8f,
-    horizontalMarginDp: Int = 24,
+    readerFont: ReaderFont,
+    fontSizeSp: Float,
+    lineHeightEm: Float,
+    horizontalMarginDp: Int,
     onTap: (Offset) -> Unit,
     onPageTurned: () -> Unit
 ) {
-    val bodyFont = remember(readerFont) {
-        when (readerFont) {
-            ReaderFont.SERIF -> FontFamily.Serif
-            ReaderFont.SANS_SERIF -> FontFamily.SansSerif
-            ReaderFont.OPEN_DYSLEXIC -> OpenDyslexicFamily
-        }
+    val bodyFont = when (readerFont) {
+        ReaderFont.SERIF -> FontFamily.Serif
+        ReaderFont.SANS_SERIF -> FontFamily.SansSerif
+        ReaderFont.OPEN_DYSLEXIC -> OpenDyslexicFamily
     }
-    val textStyle = remember(bodyFont, fontSizeSp, lineHeightEm) {
-        TextStyle(
-            fontFamily = bodyFont,
-            fontWeight = FontWeight.Normal,
-            fontSize = fontSizeSp.sp,
-            lineHeight = lineHeightEm.em,
-            textAlign = TextAlign.Justify
-        )
-    }
-    val titleStyle = remember(bodyFont, fontSizeSp, lineHeightEm) {
-        TextStyle(
-            fontFamily = bodyFont,
-            fontWeight = FontWeight.Bold,
-            fontSize = (fontSizeSp + 5f).sp,
-            lineHeight = lineHeightEm.em
-        )
-    }
+
+    val textStyle = TextStyle(
+        fontFamily = bodyFont,
+        fontWeight = FontWeight.Normal,
+        fontSize = fontSizeSp.sp,
+        lineHeight = lineHeightEm.em,
+        textAlign = TextAlign.Justify
+    )
+    val titleStyle = TextStyle(
+        fontFamily = bodyFont,
+        fontWeight = FontWeight.Bold,
+        fontSize = (fontSizeSp * 1.3f).sp,
+        lineHeight = lineHeightEm.em
+    )
 
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     val measurer = rememberTextMeasurer()
@@ -178,7 +172,7 @@ fun ReaderContent(
             }
     ) {
         if (pages.isNotEmpty()) {
-            SelectionContainer {
+            androidx.compose.foundation.text.selection.SelectionContainer {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()

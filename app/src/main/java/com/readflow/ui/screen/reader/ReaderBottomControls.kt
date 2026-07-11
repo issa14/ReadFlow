@@ -3,10 +3,10 @@ package com.readflow.ui.screen.reader
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -22,11 +22,12 @@ fun UnifiedControlPanel(
     isPlaying: Boolean,
     accentColor: Color,
     panelBg: Color,
-    readerFont: ReaderFont = ReaderFont.SERIF,
+    useOpenDyslexic: Boolean = false,
     onTtsClick: () -> Unit,
     onTtsSettingsClick: () -> Unit,
-    onReaderSettingsClick: () -> Unit,
     onThemeCycle: () -> Unit,
+    onFontToggle: () -> Unit,
+    onDisplaySettingsClick: () -> Unit,
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit
 ) {
@@ -62,16 +63,22 @@ fun UnifiedControlPanel(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                // Thème (cycle rapide)
+                // Thème
                 IconButton(onClick = onThemeCycle) {
                     Icon(Icons.Default.Palette, "Thème",
                         tint = Color.White.copy(alpha = 0.6f))
                 }
-                // Paramètres d'affichage (police, taille, marges)
-                IconButton(onClick = onReaderSettingsClick) {
+                // OpenDyslexic Quick Toggle
+                IconButton(onClick = onFontToggle) {
+                    Text("D",
+                        color = if (useOpenDyslexic) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
+                        fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+                // Options d'affichage avancées
+                IconButton(onClick = onDisplaySettingsClick) {
                     Icon(
-                        Icons.Default.Settings,
-                        "Affichage", tint = Color.White.copy(alpha = 0.6f),
+                        Icons.Default.FormatSize,
+                        "Options d'affichage", tint = Color.White.copy(alpha = 0.6f),
                         modifier = Modifier.size(24.dp)
                     )
                 }

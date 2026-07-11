@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -11,7 +12,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -60,10 +63,14 @@ fun ReaderScreen(
         ReaderTheme.SEPIA -> Triple(Color(0xFFF4ECD8), Color(0xFF3C2F2F), Color(0xFFB65D30))
     }
 
+    // Taille de l'écran pour le tiers central
+    var screenSize by remember { mutableStateOf(IntSize.Zero) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
+            .onSizeChanged { screenSize = it }
     ) {
         // ── COUCHE 0 : Texte (100% espace, jamais ne bouge) ─
         when {
@@ -79,7 +86,16 @@ fun ReaderScreen(
                 lineHeightEm = state.lineHeightEm,
                 horizontalMarginDp = state.horizontalMarginDp,
                 onPageTurned = { viewModel.hideHud() },
-                onTap = { viewModel.toggleHud() }
+                onTap = { offset ->
+                    // Tiers central uniquement
+                    if (screenSize.width > 0) {
+                        val left = screenSize.width / 3f
+                        val right = 2f * screenSize.width / 3f
+                        if (offset.x in left..right) {
+                            viewModel.toggleHud()
+                        }
+                    }
+                }
             )
         }
 
@@ -130,11 +146,12 @@ fun ReaderScreen(
                 isPlaying = state.isPlaying,
                 accentColor = accentColor,
                 panelBg = panelBg,
-                readerFont = state.readerFont,
+                useOpenDyslexic = state.useOpenDyslexic,
                 onTtsClick = { if (state.isPlaying) viewModel.pause() else viewModel.play() },
                 onTtsSettingsClick = { viewModel.showTtsSheet() },
-                onReaderSettingsClick = { viewModel.showSettingsSheet() },
                 onThemeCycle = { viewModel.cycleTheme() },
+                onFontToggle = { viewModel.toggleOpenDyslexic() },
+                onDisplaySettingsClick = { viewModel.showSettingsSheet() },
                 onPrevChapter = { viewModel.previousChapter() },
                 onNextChapter = { viewModel.nextChapter() }
             )
@@ -177,17 +194,28 @@ fun ReaderScreen(
         }
     }
 
-    // ── Panneau Paramètres d'affichage ────────────────
+    // ── COUCHE 3 : Options d'affichage et typographie ─
     if (state.isSettingsSheetVisible) {
-        val settingsPanelBg = when (state.readerTheme) {
-            ReaderTheme.SEPIA -> Color(0xFFE8DCC8)
-            else -> Color(0xFF0A0A0A)
+        val sheetBg = when (state.readerTheme) {
+            ReaderTheme.DAY -> Color(0xFFFAFAFA)
+            ReaderTheme.SEPIA -> Color(0xFFF4ECD8)
+            ReaderTheme.NIGHT -> Color(0xFF121212)
         }
+        val sheetTextColor = when (state.readerTheme) {
+            ReaderTheme.DAY -> Color(0xFF1A1A1A)
+            ReaderTheme.SEPIA -> Color(0xFF3C2F2F)
+            ReaderTheme.NIGHT -> Color(0xFFFAFAFA)
+        }
+
         ModalBottomSheet(
             onDismissRequest = { viewModel.hideSettingsSheet() },
-            containerColor = Color(0xFF1E1E1E),
+            containerColor = sheetBg,
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.3f)) }
+            dragHandle = {
+                BottomSheetDefaults.DragHandle(
+                    color = sheetTextColor.copy(alpha = 0.3f)
+                )
+            }
         ) {
             ReaderSettingsPanel(
                 currentTheme = state.readerTheme,
@@ -195,14 +223,14 @@ fun ReaderScreen(
                 fontSizeSp = state.fontSizeSp,
                 lineHeightEm = state.lineHeightEm,
                 horizontalMarginDp = state.horizontalMarginDp,
-                onThemeChange = { viewModel.setTheme(it) },
+                onThemeChange = { viewModel.setReaderTheme(it) },
                 onFontChange = { viewModel.setReaderFont(it) },
                 onFontSizeChange = { viewModel.setFontSize(it) },
                 onLineHeightChange = { viewModel.setLineHeight(it) },
                 onHorizontalMarginChange = { viewModel.setHorizontalMargin(it) },
                 accentColor = accentColor,
-                panelBg = settingsPanelBg,
-                textColor = textColor
+                panelBg = sheetBg,
+                textColor = sheetTextColor
             )
         }
     }
