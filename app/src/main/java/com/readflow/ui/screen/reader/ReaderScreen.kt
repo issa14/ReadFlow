@@ -87,8 +87,11 @@ fun ReaderScreen(
                 lineHeightEm = state.lineHeightEm,
                 horizontalMarginDp = state.horizontalMarginDp,
                 readingMode = readingMode,
+                currentChapterIndex = state.currentChapterIndex,
+                totalChapters = book?.totalChapters ?: 1,
                 onToggleMode = { readingMode = if (readingMode == ReadingMode.PAGED) ReadingMode.SCROLL else ReadingMode.PAGED },
                 onPageTurned = { viewModel.hideHud() },
+                onNextChapter = { viewModel.nextChapter() },
                 onTap = { offset ->
                     // Tiers central uniquement
                     if (screenSize.width > 0) {

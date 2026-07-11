@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,9 +50,12 @@ fun ReaderContent(
     lineHeightEm: Float,
     horizontalMarginDp: Int,
     readingMode: ReadingMode,
+    currentChapterIndex: Int,
+    totalChapters: Int,
     onToggleMode: () -> Unit,
     onTap: (Offset) -> Unit,
-    onPageTurned: () -> Unit
+    onPageTurned: () -> Unit,
+    onNextChapter: () -> Unit
 ) {
     val bodyFont = when (readerFont) {
         ReaderFont.SERIF -> FontFamily.Serif
@@ -89,8 +93,11 @@ fun ReaderContent(
             titleStyle = titleStyle,
             horizontalMarginDp = horizontalMarginDp,
             playbackState = playbackState,
+            currentChapterIndex = currentChapterIndex,
+            totalChapters = totalChapters,
             onTap = onTap,
-            onPageTurned = onPageTurned
+            onPageTurned = onPageTurned,
+            onNextChapter = onNextChapter
         )
         ReadingMode.SCROLL -> ScrollContent(
             chapter = chapter,
@@ -103,9 +110,12 @@ fun ReaderContent(
             titleStyle = titleStyle,
             horizontalMarginDp = horizontalMarginDp,
             playbackState = playbackState,
+            currentChapterIndex = currentChapterIndex,
+            totalChapters = totalChapters,
             readingMode = readingMode,
             onToggleMode = onToggleMode,
-            onTap = onTap
+            onTap = onTap,
+            onNextChapter = onNextChapter
         )
     }
 }
@@ -122,8 +132,11 @@ private fun PagedContent(
     titleStyle: TextStyle,
     horizontalMarginDp: Int,
     playbackState: PlaybackState,
+    currentChapterIndex: Int,
+    totalChapters: Int,
     onTap: (Offset) -> Unit,
-    onPageTurned: () -> Unit
+    onPageTurned: () -> Unit,
+    onNextChapter: () -> Unit
 ) {
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     val measurer = rememberTextMeasurer()
@@ -171,8 +184,16 @@ private fun PagedContent(
         result
     }
 
-    val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
+    val pagerState = rememberPagerState(pageCount = { pages.size + 1 }) // +1 pour la page virtuelle "suite"
     val scope = rememberCoroutineScope()
+    val isLastChapter = currentChapterIndex >= totalChapters - 1
+
+    // Auto-chargement du chapitre suivant quand on atteint la page virtuelle
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage == pages.size && !isLastChapter) {
+            onNextChapter()
+        }
+    }
 
     LaunchedEffect(pagerState.isScrollInProgress) {
         if (pagerState.isScrollInProgress) {
@@ -212,7 +233,7 @@ private fun PagedContent(
                             offset.x > right -> {
                                 onPageTurned()
                                 scope.launch {
-                                    if (pagerState.currentPage < pages.size - 1) {
+                                    if (pagerState.currentPage < pages.size) {
                                         pagerState.animateScrollToPage(pagerState.currentPage + 1)
                                     }
                                 }
@@ -223,11 +244,11 @@ private fun PagedContent(
                 }
             }
     ) {
-        if (pages.isNotEmpty()) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { pageIndex ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { pageIndex ->
+            if (pageIndex < pages.size) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (pageIndex == 0) {
                         Spacer(Modifier.height(24.dp))
@@ -252,6 +273,39 @@ private fun PagedContent(
                         )
                     }
                 }
+            } else {
+                // Page virtuelle : chargement du chapitre suivant ou fin du livre
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isLastChapter) {
+                        Text(
+                            text = "Fin du livre",
+                            style = textStyle.copy(
+                                color = textColor.copy(alpha = 0.5f),
+                                textAlign = TextAlign.Center
+                            )
+                        )
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                color = accentColor,
+                                modifier = Modifier.size(32.dp),
+                                strokeWidth = 3.dp
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                text = "Chargement du chapitre suivant...",
+                                style = textStyle.copy(
+                                    fontSize = 14.sp,
+                                    color = textColor.copy(alpha = 0.6f),
+                                    textAlign = TextAlign.Center
+                                )
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -269,9 +323,12 @@ private fun ScrollContent(
     titleStyle: TextStyle,
     horizontalMarginDp: Int,
     playbackState: PlaybackState,
+    currentChapterIndex: Int,
+    totalChapters: Int,
     readingMode: ReadingMode,
     onToggleMode: () -> Unit,
-    onTap: (Offset) -> Unit
+    onTap: (Offset) -> Unit,
+    onNextChapter: () -> Unit
 ) {
     val lazyListState = rememberLazyListState()
 
@@ -323,6 +380,66 @@ private fun ScrollContent(
                     textColor = textColor,
                     accentColor = accentColor,
                     playbackState = playbackState
+                )
+            }
+
+            // Déclencheur automatique inter-chapitres
+            item(key = "next_chapter_trigger") {
+                NextChapterTrigger(
+                    isLastChapter = currentChapterIndex >= totalChapters - 1,
+                    textColor = textColor,
+                    onNextChapter = onNextChapter
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextChapterTrigger(
+    isLastChapter: Boolean,
+    textColor: Color,
+    onNextChapter: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        if (!isLastChapter) {
+            onNextChapter()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLastChapter) {
+            Text(
+                text = "Fin du livre",
+                style = TextStyle(
+                    color = textColor.copy(alpha = 0.5f),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
+                ),
+                modifier = Modifier.padding(16.dp)
+            )
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = textColor.copy(alpha = 0.4f)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Chargement du chapitre suivant...",
+                    style = TextStyle(
+                        color = textColor.copy(alpha = 0.5f),
+                        fontSize = 13.sp
+                    )
                 )
             }
         }
