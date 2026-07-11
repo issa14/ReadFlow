@@ -71,8 +71,33 @@ class BookRepositoryImpl @Inject constructor(
             val author = publication.metadata.authors.joinToString(", ") { it.name }
                 .takeIf { it.isNotBlank() } ?: "Auteur inconnu"
 
-            // Extraction couverture (TODO: Readium 3.0 coverLink deprecated, adapter)
-            val coverPath: String? = null
+            // Extraction de la couverture de l'EPUB de manière robuste via l'archive ZIP
+            var coverPath: String? = null
+            try {
+                ZipFile(epubFile).use { zip ->
+                    val entry = zip.entries().asSequence()
+                        .filter { !it.isDirectory }
+                        .find { entry ->
+                            val name = entry.name.lowercase()
+                            (name.contains("cover") || name.contains("couverture") || name.contains("folder")) &&
+                                    (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png"))
+                        }
+                    if (entry != null) {
+                        val coverFile = File(epubDir, "cover.jpg")
+                        zip.getInputStream(entry).use { input ->
+                            coverFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        coverPath = coverFile.absolutePath
+                        Log.d("BookRepo", "Couverture extraite avec succès de l'archive ZIP : $coverPath")
+                    } else {
+                        Log.w("BookRepo", "Aucune couverture trouvée dans le fichier ZIP.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("BookRepo", "Erreur lors de l'extraction de la couverture du ZIP", e)
+            }
 
             val totalChapters = publication.readingOrder.size
             val book = Book(
@@ -222,11 +247,25 @@ class BookRepositoryImpl @Inject constructor(
     private fun stripHtml(html: String): String {
         if (html.isEmpty()) return ""
 
-        // 1. Décode toutes les entités HTML (&#8217; -> ', &rsquo; -> ', etc.)
-        // et extrait le texte brut en éliminant les balises structurelles
-        val decodedText = Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY).toString()
+        // 1. Ne garder que le contenu du <body> si présent pour éviter d'extraire le titre du head
+        var processedHtml = html
+        val bodyMatcher = java.util.regex.Pattern.compile("<body[^>]*>(.*?)</body>", java.util.regex.Pattern.DOTALL or java.util.regex.Pattern.CASE_INSENSITIVE).matcher(html)
+        if (bodyMatcher.find()) {
+            processedHtml = bodyMatcher.group(1) ?: html
+        } else {
+            // Fallback : supprimer la balise <head> entière
+            processedHtml = processedHtml.replace(Regex("<head[^>]*>.*?</head>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+        }
 
-        // 2. Nettoyage de la mise en forme sans détruire les sauts de ligne (\n)
+        // Supprimer les balises <style> et <script> qui pourraient se trouver dans le body
+        processedHtml = processedHtml.replace(Regex("<style[^>]*>.*?</style>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+        processedHtml = processedHtml.replace(Regex("<script[^>]*>.*?</script>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+
+        // 2. Décode toutes les entités HTML (&#8217; -> ', &rsquo; -> ', etc.)
+        // et extrait le texte brut en éliminant les balises structurelles
+        val decodedText = Html.fromHtml(processedHtml, Html.FROM_HTML_MODE_LEGACY).toString()
+
+        // 3. Nettoyage de la mise en forme sans détruire les sauts de ligne (\n)
         return decodedText
             .replace(Regex("[\\r\\t]"), "")        // Supprime les retours chariot et tabulations parasites
             .replace(Regex(" {2,}"), " ")          // Fusionne les espaces doubles ou plus en un seul espace

@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -381,6 +382,22 @@ private fun ShelfGrid(books: List<Book>, progressMap: Map<String, Float>, onBook
 }
 
 @Composable
+private fun rememberBookCoverPainter(coverPath: String?): androidx.compose.ui.graphics.ImageBitmap? {
+    if (coverPath == null) return null
+    return remember(coverPath) {
+        try {
+            val file = java.io.File(coverPath)
+            if (file.exists()) {
+                val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                bitmap?.asImageBitmap()
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
+@Composable
 private fun BookCover(
     book: Book,
     progress: Float,
@@ -388,13 +405,14 @@ private fun BookCover(
     onClick: () -> Unit
 ) {
     val gradient = CoverGradients[gradientIndex.coerceIn(0, CoverGradients.lastIndex)]
+    val coverBitmap = rememberBookCoverPainter(book.coverPath)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
-        // Couverture avec gradient
+        // Couverture avec gradient ou image
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -402,18 +420,27 @@ private fun BookCover(
                 .clip(RoundedCornerShape(3.dp))
                 .background(Brush.linearGradient(gradient))
         ) {
-            // Titre sur la couverture
-            Text(
-                book.title,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.95f),
-                lineHeight = 14.sp,
-                modifier = Modifier.padding(8.dp),
-                maxLines = 5,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (coverBitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = coverBitmap,
+                    contentDescription = book.title,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                // Titre sur la couverture si pas d'image
+                Text(
+                    book.title,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = Color.White.copy(alpha = 0.95f),
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(8.dp),
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             // Badge progression (%)
             Surface(
