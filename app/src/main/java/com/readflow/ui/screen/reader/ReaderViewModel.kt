@@ -205,7 +205,29 @@ class ReaderViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(currentSentenceIndex = pbs.activeSentenceIndex, totalSentences = pbs.totalSentences)
                 }
+                // Persister la position pour Process Death
                 savedState["sentenceIndex"] = pbs.activeSentenceIndex
+
+                // Mettre à jour ProgressEntity de la bibliothèque en arrière-plan
+                val book = currentBook
+                if (book != null) {
+                    val chapterIdx = _uiState.value.currentChapterIndex
+                    val totalSent = pbs.totalSentences.coerceAtLeast(1)
+                    val fraction = (chapterIdx.toFloat() + pbs.activeSentenceIndex.toFloat() / totalSent) / book.totalChapters.coerceAtLeast(1)
+                    
+                    try {
+                        bookRepository.saveProgress(
+                            com.readflow.domain.model.Progress(
+                                bookId = book.id,
+                                currentChapterIndex = chapterIdx,
+                                currentSentenceIndex = pbs.activeSentenceIndex,
+                                totalProgressFraction = fraction.coerceIn(0f, 1f)
+                            )
+                        )
+                    } catch (e: Exception) {
+                        Log.e("ReaderVM", "Error saving progress: ${e.message}", e)
+                    }
+                }
             }
         }
     }

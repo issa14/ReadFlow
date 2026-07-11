@@ -64,11 +64,6 @@ fun LibraryScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Wrapper qui enregistre l'ouverture avant de naviguer
-    val handleBookClick: (String) -> Unit = { bookId ->
-        state.allBooks.find { it.id == bookId }?.let { viewModel.recordBookOpen(it) }
-        onBookClick(bookId)
-    }
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = AppBackground
@@ -114,14 +109,12 @@ fun LibraryScreen(
                             when {
                                 state.isLoading && state.books.isEmpty() -> LoadingView()
                                 state.books.isEmpty() && !state.isLoading -> EmptyView()
-                                else -> ShelfGrid(state.books, handleBookClick, state.bookProgress)
+                                else -> ShelfGrid(state.books, state.bookProgress, onBookClick)
                             }
                         }
                         NavigationDestination.RECENTS -> {
-                            val recent = state.recentBooks.mapNotNull { entity ->
-                                state.allBooks.find { it.id == entity.bookId }
-                            }
-                            if (recent.isEmpty()) EmptyView() else ShelfGrid(recent, handleBookClick, state.bookProgress)
+                            val recent = state.allBooks.sortedByDescending { it.addedAt }
+                            if (recent.isEmpty()) EmptyView() else ShelfGrid(recent, state.bookProgress, onBookClick)
                         }
                         NavigationDestination.FILES -> {
                             FilesScreen(
@@ -142,22 +135,6 @@ fun LibraryScreen(
                                 onNavigateToBook = { bookId -> onBookClick(bookId) },
                                 onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
                             )
-                        }
-                        NavigationDestination.STATS -> {
-                            com.readflow.ui.screen.stats.StatsScreen(
-                                onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
-                            )
-                        }
-                        NavigationDestination.SYNC -> {
-                            com.readflow.ui.screen.sync.SyncSettingsScreen(
-                                onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
-                            )
-                        }
-                        NavigationDestination.ABOUT -> {
-                            com.readflow.ui.screen.about.AboutScreen()
-                        }
-                        NavigationDestination.SETTINGS -> {
-                            com.readflow.ui.screen.settings.SettingsScreen()
                         }
                     }
                     } // end else (isLoading)
@@ -191,8 +168,7 @@ fun LibraryScreen(
         if (showOverflow) {
             OverflowMenu(
                 onDismiss = { showOverflow = false },
-                onImport = { epubPicker.launch(arrayOf("application/epub+zip")) },
-                onSync = { viewModel.navigateTo(NavigationDestination.SYNC); showOverflow = false }
+                onImport = { epubPicker.launch(arrayOf("application/epub+zip")) }
             )
         }
 
@@ -218,10 +194,8 @@ fun LibraryScreen(
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 20.dp),
             onReadResume = {
-                val latest = state.recentBooks.firstOrNull()
-                if (latest != null) {
-                    onBookClick(latest.bookId)
-                }
+                val latest = state.allBooks.sortedByDescending { it.addedAt }.firstOrNull()
+                if (latest != null) onBookClick(latest.id)
             }
         )
     }
@@ -320,7 +294,7 @@ private fun SearchBar(
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun ShelfGrid(books: List<Book>, onBookClick: (String) -> Unit, bookProgress: Map<String, Int> = emptyMap()) {
+private fun ShelfGrid(books: List<Book>, progressMap: Map<String, Float>, onBookClick: (String) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         contentPadding = PaddingValues(12.dp),
@@ -329,10 +303,11 @@ private fun ShelfGrid(books: List<Book>, onBookClick: (String) -> Unit, bookProg
         modifier = Modifier.padding(bottom = 80.dp)
     ) {
         items(books, key = { it.id }) { book ->
+            val progress = progressMap[book.id] ?: 0f
             BookCover(
                 book = book,
+                progress = progress,
                 gradientIndex = book.title.hashCode().mod(CoverGradients.size),
-                progress = bookProgress[book.id] ?: 0,
                 onClick = { onBookClick(book.id) }
             )
         }
@@ -342,8 +317,8 @@ private fun ShelfGrid(books: List<Book>, onBookClick: (String) -> Unit, bookProg
 @Composable
 private fun BookCover(
     book: Book,
+    progress: Float,
     gradientIndex: Int,
-    progress: Int = 0,
     onClick: () -> Unit
 ) {
     val gradient = CoverGradients[gradientIndex.coerceIn(0, CoverGradients.lastIndex)]
@@ -375,7 +350,6 @@ private fun BookCover(
             )
 
             // Badge progression (%)
-            // TODO: utiliser la progression réelle
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -387,7 +361,7 @@ private fun BookCover(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        "$progress%",
+                        "${(progress * 100).toInt().coerceIn(0, 100)}%",
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -741,7 +715,7 @@ private fun FilterAndSortDialog(
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun OverflowMenu(onDismiss: () -> Unit, onImport: () -> Unit, onSync: () -> Unit = {}) {
+private fun OverflowMenu(onDismiss: () -> Unit, onImport: () -> Unit) {
     // Overlay pour fermer au tap extérieur
     Box(
         modifier = Modifier
@@ -765,7 +739,7 @@ private fun OverflowMenu(onDismiss: () -> Unit, onImport: () -> Unit, onSync: ()
                 OverflowMenuItem("Reconstruire les couvertures", Icons.Default.Refresh) { onDismiss() }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 OverflowMenuItem("Synchroniser avec le cloud", Icons.Default.CloudUpload,
-                    color = AccentBlue) { onDismiss(); onSync() }
+                    color = AccentBlue) { onDismiss() }
             }
         }
     }
@@ -837,9 +811,7 @@ private fun NavDrawer(
 
                 // Menu items dynamiques
                 Column(modifier = Modifier.weight(1f)) {
-                    NavigationDestination.entries
-                        .filter { it != NavigationDestination.ABOUT && it != NavigationDestination.SETTINGS }
-                        .forEach { dest ->
+                    NavigationDestination.entries.forEach { dest ->
                         val isActive = dest == currentDest
                         Surface(
                             color = if (isActive) Color(0xFFE8F0FE) else Color.Transparent,
@@ -877,14 +849,6 @@ private fun NavDrawer(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DrawerFooterBtn("Options", Icons.Default.Settings) {
-                            onNavigate(NavigationDestination.SETTINGS)
-                            onDismiss()
-                        }
-                        DrawerFooterBtn("À propos", Icons.Default.Info) {
-                            onNavigate(NavigationDestination.ABOUT)
-                            onDismiss()
-                        }
                         DrawerFooterBtn("Thème", Icons.Default.DarkMode) { onThemeToggle() }
                         DrawerFooterBtn("Debug", Icons.Default.Build) { onDismiss(); onDebug() }
                     }

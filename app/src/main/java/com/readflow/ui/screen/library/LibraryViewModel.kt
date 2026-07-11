@@ -3,14 +3,12 @@ package com.readflow.ui.screen.library
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.readflow.data.repository.RecentBooksRepository
-import com.readflow.data.database.BookProgressDao
-import com.readflow.data.database.entity.RecentBookEntity
 import com.readflow.domain.model.Book
 import com.readflow.domain.repository.BookRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +22,7 @@ import javax.inject.Inject
 data class LibraryUiState(
     val allBooks: List<Book> = emptyList(),
     val books: List<Book> = emptyList(),
+    val bookProgress: Map<String, Float> = emptyMap(),
     val isLoading: Boolean = true,
     val error: String? = null,
     val searchQuery: String = "",
@@ -33,9 +32,7 @@ data class LibraryUiState(
     val layoutMode: LayoutMode = LayoutMode.GRID_COVERS,
     val isFilterDialogVisible: Boolean = false,
     val currentDestination: NavigationDestination = NavigationDestination.LIBRARY,
-    val isDarkTheme: Boolean = true,
-    val recentBooks: List<RecentBookEntity> = emptyList(),
-    val bookProgress: Map<String, Int> = emptyMap()
+    val isDarkTheme: Boolean = true
 )
 
 enum class FilterMode { ALL, BY_AUTHOR, BY_TITLE, IN_PROGRESS, READ, UNREAD }
@@ -51,46 +48,36 @@ enum class NavigationDestination(
     LIBRARY("Bibliothèque", Icons.Default.Book),
     FILES("Fichiers", Icons.Default.Folder),
     OPDS("Catalogues OPDS", Icons.Default.Language),
-    BOOKMARKS("Marque-pages et notes", Icons.Default.Bookmark),
-    STATS("Statistiques de lecture", Icons.Default.BarChart),
-    SYNC("Synchronisation & Sauvegarde", Icons.Default.Sync),
-    SETTINGS("Options", Icons.Default.Settings),
-    ABOUT("À propos", Icons.Default.Info)
+    BOOKMARKS("Marque-pages et notes", Icons.Default.Bookmark)
 }
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val bookRepository: BookRepository,
-    private val recentBooksRepo: RecentBooksRepository,
-    private val bookProgressDao: BookProgressDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
-    init {
-        loadBooks()
-        viewModelScope.launch {
-            recentBooksRepo.recentBooks.collect { recents ->
-                _uiState.update { it.copy(recentBooks = recents) }
-            }
-        }
-        // Observer les progressions unifiées (SSOT) → badges réactifs
-        viewModelScope.launch {
-            bookProgressDao.getAllProgress().collect { list ->
-                val map = list.associate { it.bookId to (it.globalProgressFraction * 100).toInt() }
-                _uiState.update { it.copy(bookProgress = map) }
-            }
-        }
-    }
+    init { loadBooks() }
 
     private fun loadBooks() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val books = bookRepository.getAllBooks()
-                _uiState.update { it.copy(allBooks = books, isLoading = false) }
+                val progressMap = mutableMapOf<String, Float>()
+                books.forEach { book ->
+                    try {
+                        val progress = bookRepository.getProgress(book.id)
+                        progressMap[book.id] = progress?.totalProgressFraction ?: 0f
+                    } catch (e: Exception) {
+                        Log.e("LibraryVM", "Error loading progress for book ${book.id}", e)
+                        progressMap[book.id] = 0f
+                    }
+                }
+                _uiState.update { it.copy(allBooks = books, bookProgress = progressMap, isLoading = false) }
                 applyFilters()
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
@@ -129,27 +116,6 @@ class LibraryViewModel @Inject constructor(
         _uiState.update { it.copy(currentDestination = dest) }
     }
 
-    /**
-     * Enregistre l'ouverture d'un livre dans l'historique des récents.
-     * Appelé depuis [LibraryScreen] quand l'utilisateur ouvre un livre.
-     */
-    fun recordBookOpen(book: Book) {
-        viewModelScope.launch {
-            try {
-                recentBooksRepo.openBook(
-                    RecentBookEntity(
-                        bookId = book.id,
-                        title = book.title,
-                        author = book.author,
-                        coverPath = book.coverPath ?: ""
-                    )
-                )
-            } catch (e: Exception) {
-                // Non-bloquant : un échec d'enregistrement n'empêche pas la lecture
-            }
-        }
-    }
-
     fun toggleTheme() {
         _uiState.update { it.copy(isDarkTheme = !it.isDarkTheme) }
     }
@@ -175,12 +141,15 @@ class LibraryViewModel @Inject constructor(
             SortOrder.RECENT -> filtered.sortedByDescending { it.addedAt }
         }
 
-        // Filtre type (TODO: progression réelle depuis Room)
+        // Filtre type (progression réelle depuis Room)
         filtered = when (s.filterType) {
             FilterType.ALL -> filtered
-            FilterType.UNREAD -> filtered
-            FilterType.IN_PROGRESS -> filtered
-            FilterType.READ -> emptyList()
+            FilterType.UNREAD -> filtered.filter { (s.bookProgress[it.id] ?: 0f) <= 0.01f }
+            FilterType.IN_PROGRESS -> filtered.filter {
+                val p = s.bookProgress[it.id] ?: 0f
+                p > 0.01f && p < 0.99f
+            }
+            FilterType.READ -> filtered.filter { (s.bookProgress[it.id] ?: 0f) >= 0.99f }
         }
 
         _uiState.update { it.copy(books = filtered) }

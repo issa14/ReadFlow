@@ -32,8 +32,6 @@ import com.readflow.service.audio.PlaybackStatus
 import com.readflow.ui.theme.OpenDyslexicFamily
 import kotlinx.coroutines.launch
 
-private const val BLUETOOTH_LATENCY_COMPENSATION_MS = 180L
-
 @Composable
 fun ReaderContent(
     chapter: Chapter,
@@ -127,9 +125,8 @@ fun ReaderContent(
     val activeIdx = playbackState.activeSentenceIndex
     val isSpeaking = playbackState.status == PlaybackStatus.PLAYING
 
-    LaunchedEffect(activeIdx, isSpeaking, pages) {
-        if (isSpeaking && activeIdx in sentences.indices && pages.isNotEmpty()) {
-            kotlinx.coroutines.delay(BLUETOOTH_LATENCY_COMPENSATION_MS)
+    LaunchedEffect(activeIdx, pages) {
+        if (activeIdx in sentences.indices && pages.isNotEmpty()) {
             val targetPage = pages.indexOfFirst { page -> page.any { it.first == activeIdx } }
             if (targetPage != -1 && targetPage != pagerState.currentPage) {
                 pagerState.animateScrollToPage(targetPage)
@@ -200,19 +197,109 @@ fun ReaderContent(
                             } else {
                                 Modifier.padding(vertical = 2.dp)
                             }
-
-                            Text(
-                                text = sentence.text,
-                                style = textStyle.copy(
-                                    fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
-                                    color = if (isActive) accentColor else textColor.copy(alpha = 0.88f)
-                                ),
-                                modifier = bgModifier
-                            )
+                            
+                            if (isActive) {
+                                ActiveSentenceText(
+                                    text = sentence.text,
+                                    style = textStyle,
+                                    accentColor = accentColor,
+                                    textColor = textColor,
+                                    durationMs = playbackState.sentenceDurationMs,
+                                    startTimestamp = playbackState.sentenceStartTimestamp,
+                                    modifier = bgModifier
+                                )
+                            } else {
+                                Text(
+                                    text = sentence.text,
+                                    style = textStyle.copy(
+                                        fontWeight = FontWeight.Normal,
+                                        color = textColor.copy(alpha = 0.88f)
+                                    ),
+                                    modifier = bgModifier
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ActiveSentenceText(
+    text: String,
+    style: TextStyle,
+    accentColor: Color,
+    textColor: Color,
+    durationMs: Long,
+    startTimestamp: Long,
+    modifier: Modifier = Modifier
+) {
+    var elapsed by remember(startTimestamp) { mutableStateOf(System.currentTimeMillis() - startTimestamp) }
+    
+    LaunchedEffect(startTimestamp, durationMs) {
+        val start = startTimestamp
+        while (System.currentTimeMillis() - start < durationMs) {
+            elapsed = System.currentTimeMillis() - start
+            kotlinx.coroutines.delay(50)
+        }
+        elapsed = durationMs
+    }
+    
+    val cleanWords = remember(text) { text.split(Regex("\\s+")).filter { it.isNotEmpty() } }
+    
+    if (cleanWords.isEmpty() || durationMs <= 0) {
+        Text(text, style = style.copy(color = accentColor, fontWeight = FontWeight.Medium), modifier = modifier)
+        return
+    }
+    
+    val totalChars = cleanWords.sumOf { it.length }.toFloat()
+    val activeWordIdx = remember(elapsed, cleanWords, durationMs) {
+        val fraction = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
+        val targetCharCount = fraction * totalChars
+        var currentCharCount = 0
+        var foundIdx = 0
+        for (i in cleanWords.indices) {
+            currentCharCount += cleanWords[i].length
+            if (currentCharCount >= targetCharCount) {
+                foundIdx = i
+                break
+            }
+        }
+        foundIdx
+    }
+    
+    val annotatedString = remember(cleanWords, activeWordIdx, accentColor, textColor) {
+        val builder = AnnotatedString.Builder()
+        val originalWords = text.split(" ")
+        
+        var wordCounter = 0
+        originalWords.forEachIndexed { index, part ->
+            if (part.trim().isEmpty()) {
+                builder.append(" ")
+                return@forEachIndexed
+            }
+            if (wordCounter == activeWordIdx) {
+                builder.pushStyle(style.toSpanStyle().copy(color = accentColor, fontWeight = FontWeight.Bold))
+                builder.append(part)
+                builder.pop()
+            } else {
+                builder.pushStyle(style.toSpanStyle().copy(color = textColor.copy(alpha = 0.88f), fontWeight = FontWeight.Normal))
+                builder.append(part)
+                builder.pop()
+            }
+            wordCounter++
+            if (index < originalWords.lastIndex) {
+                builder.append(" ")
+            }
+        }
+        builder.toAnnotatedString()
+    }
+    
+    Text(
+        text = annotatedString,
+        style = style,
+        modifier = modifier
+    )
 }

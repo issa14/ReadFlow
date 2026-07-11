@@ -14,20 +14,43 @@ import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Énumération du statut de lecture exposé à l'UI.
+ */
 enum class PlaybackStatus {
+    /** Aucune lecture en cours. */
     IDLE,
+    /** Lecture active. */
     PLAYING,
+    /** Lecture mise en pause par l'utilisateur ou le système. */
     PAUSED,
+    /** Synthèse en cours, attente avant lecture audio. */
     BUFFERING
 }
 
+/**
+ * État de lecture complet exposé à l'UI via [StateFlow].
+ *
+ * Contient toutes les informations nécessaires au surlignage
+ * de la phrase active et à l'autoscroll dans l'interface de lecture.
+ */
 data class PlaybackState(
+    /** Index de la phrase en cours de lecture. */
     val activeSentenceIndex: Int = 0,
+    /** Texte de la phrase en cours de lecture. */
     val activeSentenceText: String = "",
+    /** Nombre total de phrases dans le chapitre courant. */
     val totalSentences: Int = 0,
+    /** Statut actuel du moteur de lecture. */
     val status: PlaybackStatus = PlaybackStatus.IDLE,
+    /** Titre du livre en cours (pour notification). */
     val bookTitle: String = "",
-    val chapterTitle: String = ""
+    /** Titre du chapitre en cours. */
+    val chapterTitle: String = "",
+    /** Durée de la phrase active en millisecondes. */
+    val sentenceDurationMs: Long = 0L,
+    /** Timestamp de démarrage de la phrase active. */
+    val sentenceStartTimestamp: Long = 0L
 )
 
 @Singleton
@@ -85,6 +108,8 @@ class PlaybackOrchestrator @Inject constructor(
     @Volatile private var currentSentenceIdx: Int = 0
     @Volatile private var currentTotalSentences: Int = 0
     @Volatile private var currentSentences: List<Sentence> = emptyList()
+
+    private val sentenceDurations = java.util.concurrent.ConcurrentHashMap<Int, Long>()
 
     private var currentJob: Job? = null
     @Volatile private var playGeneration: Long = 0L
@@ -196,6 +221,9 @@ class PlaybackOrchestrator @Inject constructor(
         if (sentences.isEmpty()) return
         stop()
 
+        sentenceDurations.clear()
+
+        // Demander le focus audio — ne pas lancer sans accord
         val focusGranted = audioFocusManager.requestFocus()
         if (!focusGranted) {
             Log.w(TAG, "Focus audio refusé, lecture annulée")
@@ -239,6 +267,7 @@ class PlaybackOrchestrator @Inject constructor(
                         if (idx >= total) break
                         try {
                             val result = ttsRepository.synthesize(sentences[idx].text, voice, speed)
+                            sentenceDurations[idx] = result.audioDurationMs
                             buffer.send(result)
                         } catch (e: CancellationException) { break }
                         catch (e: Exception) {
@@ -262,35 +291,56 @@ class PlaybackOrchestrator @Inject constructor(
                         _state.value = State.Playing
                         player.play()
                         started = true
+
+                        // Émettre l'état de lecture de démarrage immédiatement
+                        val firstDuration = sentenceDurations[startFrom] ?: 0L
+                        val firstStartTime = System.currentTimeMillis()
+                        updatePlaybackState(
+                            index = startFrom,
+                            text = sentences.getOrNull(startFrom)?.text ?: "",
+                            total = total,
+                            status = PlaybackStatus.PLAYING,
+                            durationMs = firstDuration,
+                            startTimestamp = firstStartTime
+                        )
+
+                        // Surveiller completedCount pour le surlignage + persistance
                         launch {
-                            var lastCompleted = 0
+                            var lastSentenceIdx = startFrom
                             while (isActive && _state.value == State.Playing &&
                                    player.completedCount < (total - startFrom) * 2) {
                                 val c = player.completedCount
-                                if (c != lastCompleted && c % 2 == 0) {
-                                    val sentenceIdx = startFrom + c / 2
-                                    val currentSentence = sentences.getOrNull(sentenceIdx - 1)
+                                val sentenceIdx = startFrom + c / 2
+                                if (sentenceIdx != lastSentenceIdx) {
+                                    val currentSentence = sentences.getOrNull(sentenceIdx)
                                     currentReadIdx = sentenceIdx
                                     currentSentenceIdx = sentenceIdx
                                     _progress.value = Progress(
                                         sentenceIdx, total, currentSentence)
 
+                                    val duration = sentenceDurations[sentenceIdx] ?: 0L
+                                    val startTime = System.currentTimeMillis()
+
+                                    // ── Mise à jour du PlaybackState pour l'UI ──
                                     updatePlaybackState(
                                         index = sentenceIdx,
                                         text = currentSentence?.text ?: "",
                                         total = total,
-                                        status = PlaybackStatus.PLAYING
+                                        status = PlaybackStatus.PLAYING,
+                                        durationMs = duration,
+                                        startTimestamp = startTime
                                     )
 
+                                    // ── Persistance atomique à chaque transition de phrase ──
                                     saveProgressAsync(
                                         bookId = bookId,
                                         chapterIdx = chapterIndex,
                                         sentenceIdx = sentenceIdx,
                                         charOffset = currentSentence?.startOffset ?: 0
                                     )
+                                    lastSentenceIdx = sentenceIdx
                                 }
-                                lastCompleted = c
-                                delay(100)
+                                delay(50)
                             }
                         }
                     }
@@ -430,11 +480,16 @@ class PlaybackOrchestrator @Inject constructor(
 
     // ── Private ───────────────────────────────────────
 
+    /**
+     * Met à jour atomiquement le [PlaybackState] exposé à l'UI.
+     */
     private fun updatePlaybackState(
         index: Int,
         text: String,
         total: Int,
-        status: PlaybackStatus
+        status: PlaybackStatus,
+        durationMs: Long = 0L,
+        startTimestamp: Long = 0L
     ) {
         _playbackState.value = PlaybackState(
             activeSentenceIndex = index,
@@ -442,7 +497,9 @@ class PlaybackOrchestrator @Inject constructor(
             totalSentences = total,
             status = status,
             bookTitle = currentBookTitle,
-            chapterTitle = currentChapterTitle
+            chapterTitle = currentChapterTitle,
+            sentenceDurationMs = durationMs,
+            sentenceStartTimestamp = startTimestamp
         )
     }
 
