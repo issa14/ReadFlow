@@ -35,6 +35,13 @@ class SettingsRepository @Inject constructor(
         val THEME = stringPreferencesKey("app_theme")
         val DYNAMIC_COLORS = booleanPreferencesKey("dynamic_colors")
         val MODEL_PATH = stringPreferencesKey("model_path")
+
+        // Clés de lecture (ReaderScreen) — anciennement SharedPreferences
+        val READER_THEME = stringPreferencesKey("reader_theme")
+        val READER_FONT = stringPreferencesKey("reader_font")
+        val FONT_SIZE = floatPreferencesKey("font_size")
+        val LINE_HEIGHT = floatPreferencesKey("line_height")
+        val HORIZONTAL_MARGIN = intPreferencesKey("horizontal_margin")
     }
 
     // ── Lectures (Flow) ──────────────────────────────
@@ -76,5 +83,33 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setModelPath(path: String) {
         dataStore.edit { it[Keys.MODEL_PATH] = path }
+    }
+
+    // ── Réglages de lecture (ReaderScreen) ───────────
+
+    val readerTheme: Flow<String> = dataStore.data.map { it[Keys.READER_THEME] ?: "NIGHT" }
+    val readerFont: Flow<String> = dataStore.data.map { it[Keys.READER_FONT] ?: "SERIF" }
+    val fontSize: Flow<Float> = dataStore.data.map { it[Keys.FONT_SIZE] ?: 18f }
+    val lineHeight: Flow<Float> = dataStore.data.map { it[Keys.LINE_HEIGHT] ?: 1.8f }
+    val horizontalMargin: Flow<Int> = dataStore.data.map { it[Keys.HORIZONTAL_MARGIN] ?: 24 }
+
+    suspend fun setReaderTheme(theme: String) {
+        dataStore.edit { it[Keys.READER_THEME] = theme }
+    }
+
+    suspend fun setReaderFont(font: String) {
+        dataStore.edit { it[Keys.READER_FONT] = font }
+    }
+
+    suspend fun setFontSize(size: Float) {
+        dataStore.edit { it[Keys.FONT_SIZE] = size.coerceIn(12f, 32f) }
+    }
+
+    suspend fun setLineHeight(height: Float) {
+        dataStore.edit { it[Keys.LINE_HEIGHT] = height.coerceIn(1.2f, 2.4f) }
+    }
+
+    suspend fun setHorizontalMargin(margin: Int) {
+        dataStore.edit { it[Keys.HORIZONTAL_MARGIN] = margin.coerceIn(8, 48) }
     }
 }

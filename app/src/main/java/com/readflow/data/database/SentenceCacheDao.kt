@@ -55,4 +55,11 @@ interface SentenceCacheDao {
      */
     @Query("SELECT COUNT(*) FROM sentence_cache WHERE bookId = :bookId AND chapterIndex = :chapterIndex")
     suspend fun hasSentences(bookId: String, chapterIndex: Int): Int
+
+    /**
+     * Met à jour le titre de chapitre pour toutes les phrases d'un chapitre.
+     * Appelé après l'import pour éviter de rouvrir l'EPUB plus tard.
+     */
+    @Query("UPDATE sentence_cache SET chapterTitle = :title WHERE bookId = :bookId AND chapterIndex = :chapterIndex")
+    suspend fun updateChapterTitle(bookId: String, chapterIndex: Int, title: String)
 }

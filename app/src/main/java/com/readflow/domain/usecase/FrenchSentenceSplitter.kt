@@ -32,19 +32,16 @@ object FrenchSentenceSplitter {
      * Abréviations françaises courantes qui ne terminent PAS une phrase.
      * Set immuable, alloué une seule fois au chargement de la classe.
      */
+    /**
+     * Abréviations françaises courantes (mises en minuscules pour comparaison insensible à la casse).
+     */
     private val ABBREVIATIONS: Set<String> = setOf(
-        // Titres de civilité
-        "M", "MM", "Mme", "Mlle", "Mgr",
-        // Titres académiques/professionnels
-        "Dr", "Pr", "Me", "Prof",
-        // Locutions latines et abréviations courantes
-        "etc", "cf", "vs", "env", "not", "ibid", "op", "cit",
-        // Mois (dates)
-        "janv", "févr", "mars", "avr", "mai", "juin",
-        "juil", "août", "sept", "oct", "nov", "déc",
-        // Unités et divers
-        "approx", "max", "min", "art", "chap", "fig", "tab",
-        "p", "pp", "vol", "éd", "coll", "dir"
+        // Civilités et Titres
+        "m", "mm", "mme", "mlles", "mlle", "mgr", "dr", "pr", "me", "prof", "st", "ste",
+        // Éléments bibliographiques/éditoriaux
+        "art", "chap", "t", "vol", "p", "pp", "sq", "sqq", "ed", "éd", "coll", "dir", "fig", "tab", "ibid", "op", "cit",
+        // Divers et locutions
+        "etc", "cf", "vs", "env", "not", "approx", "max", "min", "ex", "al", "tel", "cie", "sté"
     )
 
     // ── API publique ──────────────────────────────────
@@ -133,33 +130,35 @@ object FrenchSentenceSplitter {
     private fun isFalseBoundary(text: String, segmentStart: Int, boundary: Int): Boolean {
         if (boundary <= 0 || boundary >= text.length) return false
 
-        val punctIndex = boundary - 1
-        val punctChar = text[punctIndex]
-
-        // Seuls les points sont ambigus (?! sont toujours des fins de phrase)
-        if (punctChar != '.') return false
-
-        // 1. Vérifier si c'est une abréviation connue
-        val wordBefore = extractWordBeforeDot(text, punctIndex)
-        if (wordBefore.isNotEmpty() && ABBREVIATIONS.contains(wordBefore)) {
+        // 1. Incises de dialogue ou continuations de phrase (valable pour TOUTE ponctuation : . ! ? …)
+        if (isDialogueInciseOrContinuation(text, boundary)) {
             return true
         }
 
-        // 2. Initiale isolée (ex: "J. K. Rowling" ou "P. Dupont")
-        //    Pattern : une lettre majuscule unique suivie d'un point
+        val punctIndex = boundary - 1
+        val punctChar = text[punctIndex]
+
+        // Seuls les points sont ambigus pour la suite des contrôles (. vs !/?)
+        if (punctChar != '.') return false
+
+        // 2. Vérifier si c'est une abréviation connue (insensible à la casse)
+        val wordBefore = extractWordBeforeDot(text, punctIndex)
+        if (wordBefore.isNotEmpty() && ABBREVIATIONS.contains(wordBefore.lowercase())) {
+            return true
+        }
+
+        // 3. Initiale isolée (ex: "J. K. Rowling" ou "P. Dupont")
         if (wordBefore.length == 1 && wordBefore[0].isUpperCase()) {
             return true
         }
 
-        // 3. Point suivi immédiatement d'un guillemet fermant (dialogue)
-        //    Ex: « Bonjour. » — BreakIterator gère déjà ce cas, mais vérifions
+        // 4. Point suivi immédiatement d'un guillemet fermant (dialogue)
         val afterBoundary = text[boundary]
         if (afterBoundary == '»' || afterBoundary == '"' || afterBoundary == '\'' || afterBoundary == ')') {
             return true
         }
 
-        // 4. Nombre décimal (ex: 3.14)
-        //    BreakIterator gère normalement ce cas, mais vérification supplémentaire
+        // 5. Nombre décimal (ex: 3.14)
         if (punctIndex > 0 && punctIndex + 1 < text.length) {
             val before = text[punctIndex - 1]
             val after = text[punctIndex + 1]
@@ -168,8 +167,7 @@ object FrenchSentenceSplitter {
             }
         }
 
-        // 5. Acronyme en points (ex: U.S.A., E.U.)
-        //    Pattern : lettre.point.lettre (déjà détecté par ICU normalement)
+        // 6. Acronyme en points (ex: U.S.A., E.U.)
         if (punctIndex >= 2 && punctIndex + 1 < text.length) {
             val twoBefore = text[punctIndex - 2]
             val oneAfter = text[punctIndex + 1]
@@ -178,6 +176,28 @@ object FrenchSentenceSplitter {
             }
         }
 
+        return false
+    }
+
+    /**
+     * Détermine si la frontière est immédiatement suivie d'une incise de dialogue
+     * ou d'une continuation commençant par une minuscule (ex: « dit-il », « s'exclama-t-elle »).
+     */
+    private fun isDialogueInciseOrContinuation(text: String, boundary: Int): Boolean {
+        var i = boundary
+        // Ignorer les espaces, guillemets, tirets de dialogue ou parenthèses fermantes
+        while (i < text.length) {
+            val c = text[i]
+            if (c.isWhitespace() || c == '»' || c == '"' || c == '\'' || c == ')' || c == ']' || c == '—' || c == '–' || c == '-') {
+                i++
+            } else {
+                break
+            }
+        }
+        if (i < text.length) {
+            val firstChar = text[i]
+            return firstChar.isLowerCase()
+        }
         return false
     }
 

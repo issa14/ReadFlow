@@ -1,32 +1,23 @@
 package com.readflow.ui.screen.reader
 
-import android.Manifest
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.readflow.data.database.AnnotationDao
-import com.readflow.data.database.HighlightDao
-import com.readflow.data.database.PronunciationRuleDao
-import com.readflow.data.settings.SettingsRepository
-import com.readflow.data.database.entity.AnnotationEntity
-import com.readflow.data.database.entity.HighlightEntity
-import com.readflow.data.database.entity.PronunciationRule
 import com.readflow.domain.model.Book
 import com.readflow.domain.model.Chapter
 import com.readflow.domain.repository.BookRepository
-import com.readflow.service.audio.AudioPlaybackService
+import com.readflow.data.database.AnnotationDao
+import com.readflow.data.database.BookmarkDao
+import com.readflow.data.database.HighlightDao
+import com.readflow.data.database.entity.AnnotationEntity
+import com.readflow.data.database.entity.BookmarkEntity
+import com.readflow.data.database.entity.HighlightEntity
 import com.readflow.service.audio.PlaybackOrchestrator
 import com.readflow.service.audio.PlaybackState
 import com.readflow.service.audio.PlaybackStatus
 import com.readflow.service.onnx.OnnxInferenceService
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -39,19 +30,27 @@ data class ReaderUiState(
     val totalSentences: Int = 0,
     val isPlaying: Boolean = false,
     val isLoading: Boolean = false,
+    val isLoadingChapter: Boolean = false,
     val error: String? = null,
-    // ── UI state (HUD, sheets) ──
     val isHudVisible: Boolean = false,
     val isTtsSheetVisible: Boolean = false,
     val isTocSheetVisible: Boolean = false,
-    val isAnnotationsSheetVisible: Boolean = false,
+    val isSettingsSheetVisible: Boolean = false,
     val speed: Float = 1.0f,
-    val voice: Int = 0,  // MIRO — voix française Piper VITS
+    val voice: Int = 0,
     val readerTheme: ReaderTheme = ReaderTheme.NIGHT,
-    val useOpenDyslexic: Boolean = false
+    val readerFont: ReaderFont = ReaderFont.SERIF,
+    val fontSizeSp: Float = 18f,
+    val lineHeightEm: Float = 1.8f,
+    val horizontalMarginDp: Int = 24,
+    val useOpenDyslexic: Boolean = false,
+    val lastAction: String? = null,
+    val highlights: List<HighlightEntity> = emptyList(),
+    val bookmarks: List<BookmarkEntity> = emptyList()
 )
 
 enum class ReaderTheme { DAY, NIGHT, SEPIA }
+enum class ReaderFont { SERIF, SANS_SERIF, OPEN_DYSLEXIC }
 
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
@@ -59,69 +58,27 @@ class ReaderViewModel @Inject constructor(
     private val bookRepository: BookRepository,
     private val orchestrator: PlaybackOrchestrator,
     private val onnxService: OnnxInferenceService,
-    private val pronunciationRuleDao: PronunciationRuleDao,
-    private val annotationDao: AnnotationDao,
+    private val settingsRepository: com.readflow.data.settings.SettingsRepository,
+    private val pronunciationRuleDao: com.readflow.data.database.PronunciationRuleDao,
+    private val bookmarkDao: BookmarkDao,
     private val highlightDao: HighlightDao,
-    private val settingsRepo: SettingsRepository,
-    @ApplicationContext private val context: Context
+    private val annotationDao: AnnotationDao,
+    private val audioServiceLauncher: com.readflow.domain.service.AudioServiceLauncher
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
-    /**
-     * État de lecture détaillé pour la synchronisation visuelle (Phase 2).
-     *
-     * Exposé directement depuis [PlaybackOrchestrator.playbackState]
-     * pour que l'UI observe :
-     * - L'index de la phrase active (surlignage)
-     * - Le texte de la phrase active
-     * - Le statut (PLAYING / PAUSED / BUFFERING)
-     *
-     * Le déclenchement de l'autoscroll se fait dans [ReaderScreen]
-     * via un `LaunchedEffect` sur `playbackState.activeSentenceIndex`.
-     */
-    val playbackState: StateFlow<PlaybackState> = orchestrator.playbackState
+    val sleepTimerRemaining: StateFlow<Int?> = orchestrator.sleepTimerRemaining
 
-    // ── Dictionnaire de prononciation ──
-    val pronunciationRules: StateFlow<List<PronunciationRule>> =
+    val pronunciationRules: StateFlow<List<com.readflow.data.database.entity.PronunciationRule>> = 
         pronunciationRuleDao.getAllRulesFlow()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // ── Minuteur de mise en veille ──
-    val sleepTimerRemaining: StateFlow<Long?> = orchestrator.sleepTimerRemaining
-
-    // ── Surlignages (HighlightEntity) ──
-    private val _bookIdFlow = MutableStateFlow<String?>(null)
-
-    /** Surlignages du livre courant (tous chapitres, pour le tiroir). */
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val highlights: StateFlow<List<HighlightEntity>> = _bookIdFlow
-        .flatMapLatest { id ->
-            if (id != null) highlightDao.getHighlightsForBook(id)
-            else flowOf(emptyList())
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** Surlignages du chapitre courant (pour le rendu AnnotatedString). */
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val chapterHighlights: StateFlow<List<HighlightEntity>> = combine(
-        _bookIdFlow,
-        _uiState.map { it.currentChapterIndex }
-    ) { bookId, chapterIdx ->
-        Pair(bookId, chapterIdx)
-    }.flatMapLatest { (bookId, chapterIdx) ->
-        if (bookId != null) highlightDao.getHighlightsForChapter(bookId, chapterIdx)
-        else flowOf(emptyList())
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** Cible de scroll utilisée par l'UI pour sauter vers une phrase précise. */
-    private val _scrollTarget = MutableStateFlow<Pair<Int, Int>?>(null)
-    val scrollTarget: StateFlow<Pair<Int, Int>?> = _scrollTarget.asStateFlow()
+    val playbackState: StateFlow<PlaybackState> = orchestrator.playbackState
 
     private var currentBook: Book? = null
     private var isPausedForResume = false
-
-    // ── UI actions ───────────────────────────────────
 
     fun toggleHud() { _uiState.update { it.copy(isHudVisible = !it.isHudVisible) } }
     fun hideHud() { _uiState.update { it.copy(isHudVisible = false) } }
@@ -129,10 +86,66 @@ class ReaderViewModel @Inject constructor(
     fun hideTtsSheet() { _uiState.update { it.copy(isTtsSheetVisible = false) } }
     fun showTocSheet() { _uiState.update { it.copy(isTocSheetVisible = true) } }
     fun hideTocSheet() { _uiState.update { it.copy(isTocSheetVisible = false) } }
-    fun showAnnotationsSheet() { _uiState.update { it.copy(isAnnotationsSheetVisible = true) } }
-    fun hideAnnotationsSheet() { _uiState.update { it.copy(isAnnotationsSheetVisible = false) } }
+    fun showSettingsSheet() { _uiState.update { it.copy(isSettingsSheetVisible = true) } }
+    fun hideSettingsSheet() { _uiState.update { it.copy(isSettingsSheetVisible = false) } }
     fun setSpeed(s: Float) { _uiState.update { it.copy(speed = s.coerceIn(0.5f, 2.0f)) } }
     fun setVoice(v: Int) { _uiState.update { it.copy(voice = v) } }
+
+    fun startSleepTimer(minutes: Int) { orchestrator.startSleepTimer(minutes) }
+    fun cancelSleepTimer() { orchestrator.cancelSleepTimer() }
+
+    fun addPronunciationRule(original: String, replacement: String, isRegex: Boolean) {
+        viewModelScope.launch {
+            try {
+                pronunciationRuleDao.insertRule(
+                    com.readflow.data.database.entity.PronunciationRule(
+                        pattern = original, replacement = replacement, isRegex = isRegex
+                    )
+                )
+            } catch (e: Exception) { Log.e("ReaderVM", "Error inserting pronunciation rule", e) }
+        }
+    }
+
+    fun deletePronunciationRule(rule: com.readflow.data.database.entity.PronunciationRule) {
+        viewModelScope.launch {
+            try { pronunciationRuleDao.deleteRule(rule) }
+            catch (e: Exception) { Log.e("ReaderVM", "Error deleting pronunciation rule", e) }
+        }
+    }
+
+    fun togglePronunciationRule(rule: com.readflow.data.database.entity.PronunciationRule) {
+        viewModelScope.launch {
+            try { pronunciationRuleDao.toggleRuleActive(rule.id, !rule.isActive) }
+            catch (e: Exception) { Log.e("ReaderVM", "Error updating pronunciation rule", e) }
+        }
+    }
+
+    fun setReaderTheme(theme: ReaderTheme) {
+        _uiState.update { it.copy(readerTheme = theme) }
+        savedState["theme"] = theme.name
+        viewModelScope.launch { settingsRepository.setReaderTheme(theme.name) }
+    }
+
+    fun setReaderFont(font: ReaderFont) {
+        _uiState.update { it.copy(readerFont = font, useOpenDyslexic = (font == ReaderFont.OPEN_DYSLEXIC)) }
+        savedState["openDyslexic"] = (font == ReaderFont.OPEN_DYSLEXIC)
+        viewModelScope.launch { settingsRepository.setReaderFont(font.name) }
+    }
+
+    fun setFontSize(size: Float) {
+        _uiState.update { it.copy(fontSizeSp = size.coerceIn(12f, 32f)) }
+        viewModelScope.launch { settingsRepository.setFontSize(size) }
+    }
+
+    fun setLineHeight(height: Float) {
+        _uiState.update { it.copy(lineHeightEm = height.coerceIn(1.2f, 2.4f)) }
+        viewModelScope.launch { settingsRepository.setLineHeight(height) }
+    }
+
+    fun setHorizontalMargin(margin: Int) {
+        _uiState.update { it.copy(horizontalMarginDp = margin.coerceIn(8, 48)) }
+        viewModelScope.launch { settingsRepository.setHorizontalMargin(margin) }
+    }
 
     fun cycleTheme() {
         val next = when (_uiState.value.readerTheme) {
@@ -140,114 +153,118 @@ class ReaderViewModel @Inject constructor(
             ReaderTheme.SEPIA -> ReaderTheme.DAY
             ReaderTheme.DAY -> ReaderTheme.NIGHT
         }
-        _uiState.update { it.copy(readerTheme = next) }
+        setReaderTheme(next)
     }
-    fun setTheme(theme: ReaderTheme) { _uiState.update { it.copy(readerTheme = theme) } }
-    fun toggleOpenDyslexic() { _uiState.update { it.copy(useOpenDyslexic = !it.useOpenDyslexic) } }
+
+    fun setTheme(theme: ReaderTheme) { setReaderTheme(theme) }
+
+    fun toggleOpenDyslexic() {
+        val nextFont = if (_uiState.value.readerFont == ReaderFont.OPEN_DYSLEXIC) ReaderFont.SERIF else ReaderFont.OPEN_DYSLEXIC
+        setReaderFont(nextFont)
+    }
 
     init {
-        // P1: Initialiser le moteur TTS silencieusement dès l'ouverture du lecteur
+        // Charger les préférences de lecture depuis DataStore (remplace SharedPreferences)
+        viewModelScope.launch {
+            combine(
+                settingsRepository.readerTheme,
+                settingsRepository.readerFont,
+                settingsRepository.fontSize,
+                settingsRepository.lineHeight,
+                settingsRepository.horizontalMargin
+            ) { theme, font, size, lh, margin ->
+                val initialTheme = try { ReaderTheme.valueOf(theme) } catch (_: Exception) { ReaderTheme.NIGHT }
+                val initialFont = try { ReaderFont.valueOf(font) } catch (_: Exception) { ReaderFont.SERIF }
+                _uiState.update {
+                    it.copy(
+                        readerTheme = initialTheme, readerFont = initialFont,
+                        fontSizeSp = size, lineHeightEm = lh,
+                        horizontalMarginDp = margin,
+                        useOpenDyslexic = (initialFont == ReaderFont.OPEN_DYSLEXIC)
+                    )
+                }
+            }.collect()
+        }
+
         viewModelScope.launch {
             try {
+                _uiState.update { it.copy(isLoading = true) }
                 onnxService.initialize()
             } catch (e: Exception) {
-                Log.e("ReaderVM", "Échec initialisation ONNX: ${e.message}", e)
-                _uiState.update { it.copy(error = "Échec du moteur TTS : ${e.message}") }
+                Log.e("ReaderVM", "Echec initialisation ONNX: ${e.message}", e)
+                _uiState.update { it.copy(error = "Echec du moteur TTS : ${e.message}") }
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
             }
         }
 
-        // Observer l'orchestrateur pour synchroniser l'UI
         viewModelScope.launch {
             orchestrator.state.collect { state ->
                 val wasPlaying = _uiState.value.isPlaying
                 val nowPlaying = state is PlaybackOrchestrator.State.Playing
                 _uiState.update { it.copy(isPlaying = nowPlaying) }
-
-                // P3: Fin naturelle → chapitre suivant automatique
                 if (wasPlaying && state is PlaybackOrchestrator.State.Idle && !isPausedForResume) {
                     autoAdvanceIfAtEnd()
                 }
             }
         }
 
-        // Observer le PlaybackState pour la synchronisation d'index de phrase
         viewModelScope.launch {
             orchestrator.playbackState.collect { pbs ->
                 _uiState.update {
-                    it.copy(
-                        currentSentenceIndex = pbs.activeSentenceIndex,
-                        totalSentences = pbs.totalSentences
-                    )
+                    it.copy(currentSentenceIndex = pbs.activeSentenceIndex, totalSentences = pbs.totalSentences)
                 }
                 // Persister la position pour Process Death
                 savedState["sentenceIndex"] = pbs.activeSentenceIndex
-            }
-        }
 
-        // Observer les settings globaux
-        viewModelScope.launch {
-            settingsRepo.voice.collect { voice ->
-                val sid = OnnxInferenceService.Voice.entries
-                    .find { it.label.contains(voice, true) }?.sid ?: 0
-                _uiState.update { it.copy(voice = sid) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepo.speed.collect { speed ->
-                _uiState.update { it.copy(speed = speed.coerceIn(0.5f, 2.0f)) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepo.gain.collect { gain ->
-                orchestrator.setGain(gain)
+                // Mettre à jour ProgressEntity de la bibliothèque en arrière-plan
+                val book = currentBook
+                if (book != null) {
+                    val chapterIdx = _uiState.value.currentChapterIndex
+                    val totalSent = pbs.totalSentences.coerceAtLeast(1)
+                    val fraction = (chapterIdx.toFloat() + pbs.activeSentenceIndex.toFloat() / totalSent) / book.totalChapters.coerceAtLeast(1)
+                    
+                    try {
+                        bookRepository.saveProgress(
+                            com.readflow.domain.model.Progress(
+                                bookId = book.id,
+                                currentChapterIndex = chapterIdx,
+                                currentSentenceIndex = pbs.activeSentenceIndex,
+                                totalProgressFraction = fraction.coerceIn(0f, 1f)
+                            )
+                        )
+                    } catch (e: Exception) {
+                        Log.e("ReaderVM", "Error saving progress: ${e.message}", e)
+                    }
+                }
             }
         }
     }
 
     fun loadBook(bookId: String) {
-        // Restaurer l'état après Process Death
         val savedChapter = savedState.get<Int>("chapterIndex") ?: 0
         val savedSentence = savedState.get<Int>("sentenceIndex") ?: 0
         val savedSpeed = savedState.get<Float>("speed") ?: 1.0f
         val savedVoice = savedState.get<Int>("voice") ?: 0
-        val savedTheme = savedState.get<String>("theme")?.let {
-            try { ReaderTheme.valueOf(it) } catch (_: Exception) { null }
-        } ?: ReaderTheme.NIGHT
-        val savedDyslexic = savedState.get<Boolean>("openDyslexic") ?: false
-
-        _uiState.update { it.copy(
-            speed = savedSpeed, voice = savedVoice,
-            readerTheme = savedTheme, useOpenDyslexic = savedDyslexic
-        )}
+        _uiState.update { it.copy(speed = savedSpeed, voice = savedVoice) }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val books = bookRepository.getAllBooks()
-                val book = books.find { it.id == bookId }
-                    ?: throw IllegalStateException("Livre introuvable")
+                val book = books.find { it.id == bookId } ?: throw IllegalStateException("Livre introuvable")
                 currentBook = book
-                _bookIdFlow.value = bookId
                 _uiState.update { it.copy(book = book, isLoading = false) }
-
-                // Charger la progression persistée depuis Room (survit aux redémarrages)
                 val dbProgress = orchestrator.loadProgress(bookId)
-
                 val targetChapter: Int
                 val targetSentence: Int
-
                 if (dbProgress != null) {
-                    // Progression Room → prioritaire sur SavedStateHandle (process death)
                     targetChapter = dbProgress.chapterIndex.coerceIn(0, book.totalChapters - 1)
                     targetSentence = dbProgress.sentenceIndex
-                    Log.d("ReaderVM", "Progression restaurée depuis Room: ch=$targetChapter sent=$targetSentence")
                 } else {
-                    // Fallback sur SavedStateHandle (survie au process death uniquement)
                     targetChapter = savedChapter
                     targetSentence = savedSentence
-                    Log.d("ReaderVM", "Progression restaurée depuis SavedState: ch=$targetChapter sent=$targetSentence")
                 }
-
                 loadChapter(targetChapter, targetSentence)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
@@ -258,47 +275,50 @@ class ReaderViewModel @Inject constructor(
     private fun loadChapter(index: Int, sentenceIndex: Int = 0) {
         val book = currentBook ?: return
         if (index < 0 || index >= book.totalChapters) return
-        // Persister l'état pour Process Death
+        // Empêche les appels concurrents qui causent la boucle infinie
+        if (_uiState.value.isLoadingChapter && index == _uiState.value.currentChapterIndex) return
         savedState["chapterIndex"] = index
         savedState["sentenceIndex"] = sentenceIndex
         savedState["speed"] = _uiState.value.speed
         savedState["voice"] = _uiState.value.voice
         savedState["theme"] = _uiState.value.readerTheme.name
-        savedState["openDyslexic"] = _uiState.value.useOpenDyslexic
+        savedState["openDyslexic"] = (_uiState.value.readerFont == ReaderFont.OPEN_DYSLEXIC)
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, isLoadingChapter = true, error = null) }
             try {
                 val chapter = bookRepository.getChapter(book.id, index)
+                val highlights = highlightDao.getHighlightsForChapter(book.id, index).first()
+                val bookmarks = bookmarkDao.getBookmarks(book.id).first()
                 _uiState.update {
                     it.copy(
-                        currentChapterIndex = index,
-                        currentChapter = chapter,
-                        totalSentences = chapter.sentences.size,
-                        currentSentenceIndex = sentenceIndex,
-                        isLoading = false
+                        currentChapterIndex = index, currentChapter = chapter,
+                        totalSentences = chapter.sentences.size, currentSentenceIndex = sentenceIndex,
+                        highlights = highlights, bookmarks = bookmarks,
+                        isLoading = false, isLoadingChapter = false
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = e.message, isLoading = false) }
+                _uiState.update { it.copy(error = e.message, isLoading = false, isLoadingChapter = false) }
             }
         }
     }
 
     fun previousChapter() {
+        if (_uiState.value.isLoadingChapter) return
         val idx = _uiState.value.currentChapterIndex - 1
         if (idx >= 0) loadChapter(idx)
     }
 
     fun nextChapter() {
+        if (_uiState.value.isLoadingChapter) return
         val book = currentBook ?: return
         val idx = _uiState.value.currentChapterIndex + 1
         if (idx < book.totalChapters) loadChapter(idx)
     }
 
     fun previousSentence() {
-        if (_uiState.value.isPlaying) {
-            orchestrator.seekToPrevious()
-        } else {
+        if (_uiState.value.isPlaying) orchestrator.seekToPrevious()
+        else {
             val prevIdx = (_uiState.value.currentSentenceIndex - 1).coerceAtLeast(0)
             _uiState.update { it.copy(currentSentenceIndex = prevIdx) }
         }
@@ -306,15 +326,15 @@ class ReaderViewModel @Inject constructor(
 
     fun nextSentence() {
         val maxIdx = (_uiState.value.totalSentences - 1).coerceAtLeast(0)
-        if (_uiState.value.isPlaying) {
-            orchestrator.seekToNext()
-        } else {
+        if (_uiState.value.isPlaying) orchestrator.seekToNext()
+        else {
             val nextIdx = (_uiState.value.currentSentenceIndex + 1).coerceAtMost(maxIdx)
             _uiState.update { it.copy(currentSentenceIndex = nextIdx) }
         }
     }
 
     fun goToChapter(index: Int) {
+        if (_uiState.value.isLoadingChapter) return
         val book = currentBook ?: return
         if (index in 0 until book.totalChapters) loadChapter(index)
     }
@@ -322,40 +342,23 @@ class ReaderViewModel @Inject constructor(
     fun play() {
         val chapter = _uiState.value.currentChapter ?: return
         val book = currentBook ?: return
-
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                _uiState.update { it.copy(error = "Permission notification requise.") }
-                return
-            }
+        if (!audioServiceLauncher.canStart()) {
+            _uiState.update { it.copy(error = "Permission notification requise.") }
+            return
         }
-
-        val intent = Intent(context, AudioPlaybackService::class.java)
-        ContextCompat.startForegroundService(context, intent)
-
-        // P2: Reprendre à la phrase sauvegardée (Pause) ou démarrer du début (Stop/Idle)
+        audioServiceLauncher.start()
         val startFrom = if (isPausedForResume) _uiState.value.currentSentenceIndex else 0
         isPausedForResume = false
-
         val s = _uiState.value
         orchestrator.play(
-            chapter.sentences,
-            voice = s.voice,
-            speed = s.speed,
-            startFrom = startFrom,
-            bookTitle = book.title,
-            chapterTitle = chapter.title,
-            bookId = book.id,
-            chapterIndex = s.currentChapterIndex,
-            totalChapters = book.totalChapters
+            chapter.sentences, voice = s.voice, speed = s.speed, startFrom = startFrom,
+            bookTitle = book.title, chapterTitle = chapter.title, bookId = book.id, chapterIndex = s.currentChapterIndex
         )
         _uiState.update { it.copy(isPlaying = true) }
     }
 
     fun pause() {
-        isPausedForResume = true  // P2: mémoriser la position pour reprise
+        isPausedForResume = true
         orchestrator.pause()
         _uiState.update { it.copy(isPlaying = false) }
     }
@@ -366,141 +369,105 @@ class ReaderViewModel @Inject constructor(
         _uiState.update { it.copy(isPlaying = false, currentSentenceIndex = 0) }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        orchestrator.stop()
-    }
-
-    // P3: Avancer automatiquement au chapitre suivant si on est à la dernière phrase
     private fun autoAdvanceIfAtEnd() {
         val book = currentBook ?: return
         val chapter = _uiState.value.currentChapter ?: return
         val lastIdx = chapter.sentences.lastIndex
         val currentIdx = _uiState.value.currentSentenceIndex
-
         if (currentIdx >= lastIdx) {
             val next = _uiState.value.currentChapterIndex + 1
-            if (next < book.totalChapters) {
-                loadChapter(next)
-            }
+            if (next < book.totalChapters) loadChapter(next)
         }
     }
 
-    fun clearError() {
-        _uiState.update { it.copy(error = null) }
-    }
+    fun clearError() { _uiState.update { it.copy(error = null) } }
 
-    // ── Minuteur de mise en veille ──────────────────
+    // ── Marque-pages, surlignages, annotations ─
 
-    fun startSleepTimer(minutes: Int) {
-        orchestrator.startSleepTimer(minutes)
-    }
-
-    fun cancelSleepTimer() {
-        orchestrator.cancelSleepTimer()
-    }
-
-    // ── Dictionnaire de prononciation ───────────────
-
-    fun addPronunciationRule(pattern: String, replacement: String, isRegex: Boolean) {
-        viewModelScope.launch {
-            pronunciationRuleDao.insertRule(
-                PronunciationRule(
-                    pattern = pattern,
-                    replacement = replacement,
-                    isRegex = isRegex
-                )
-            )
-        }
-    }
-
-    fun deletePronunciationRule(rule: PronunciationRule) {
-        viewModelScope.launch {
-            pronunciationRuleDao.deleteRule(rule)
-        }
-    }
-
-    fun togglePronunciationRule(rule: PronunciationRule) {
-        viewModelScope.launch {
-            pronunciationRuleDao.toggleRuleActive(rule.id, !rule.isActive)
-        }
-    }
-
-    // ── Surlignages ────────────────────────────────
-
-    fun saveHighlight(
-        sentenceIndex: Int,
-        startOffset: Int,
-        endOffset: Int,
-        text: String,
-        colorHex: String
-    ) {
-        val bookId = _bookIdFlow.value ?: return
-        val chapterIdx = _uiState.value.currentChapterIndex
-        viewModelScope.launch {
-            highlightDao.insertHighlight(
-                HighlightEntity(
-                    bookId = bookId,
-                    chapterIndex = chapterIdx,
-                    sentenceIndex = sentenceIndex,
-                    startOffset = startOffset,
-                    endOffset = endOffset,
-                    selectedText = text,
-                    colorHex = colorHex
-                )
-            )
-        }
-    }
-
-    fun saveNoteForHighlight(highlightId: Long, noteText: String) {
-        viewModelScope.launch {
-            val current = highlights.value.find { it.id == highlightId } ?: return@launch
-            highlightDao.updateHighlight(current.copy(note = noteText.ifBlank { null }))
-        }
-    }
-
-    fun deleteHighlight(highlight: HighlightEntity) {
-        viewModelScope.launch {
-            highlightDao.deleteHighlight(highlight)
-        }
-    }
-
-    /**
-     * Prononce le texte sélectionné via TTS sans interrompre la lecture en cours.
-     */
-    fun pronounceSelectedText(text: String) {
-        if (text.isBlank()) return
+    fun addBookmark(sentenceIndex: Int, text: String) {
+        val book = currentBook ?: return
         viewModelScope.launch {
             try {
-                val chapter = _uiState.value.currentChapter ?: return@launch
-                val speed = _uiState.value.speed
-                val voice = _uiState.value.voice
-                // Synthèse ponctuelle (hors pipeline de lecture)
-                val result = com.readflow.domain.repository.TtsRepository::class.java
-                android.util.Log.d("ReaderVM", "Prononcer: '$text'")
-                // TODO: Connecter au TtsRepository pour synthèse one-shot
+                val chapterIdx = _uiState.value.currentChapterIndex
+                val existing = bookmarkDao.findByPosition(book.id, chapterIdx, sentenceIndex)
+                if (existing != null) {
+                    bookmarkDao.delete(existing)
+                    _uiState.update { it.copy(lastAction = "Marque-page retiré") }
+                } else {
+                    bookmarkDao.insert(
+                        BookmarkEntity(
+                            bookId = book.id,
+                            chapterIndex = chapterIdx,
+                            sentenceIndex = sentenceIndex,
+                            text = text.take(120)
+                        )
+                    )
+                    _uiState.update { it.copy(lastAction = "Marque-page ajouté") }
+                }
+                reloadAnnotations(book.id, chapterIdx)
             } catch (e: Exception) {
-                android.util.Log.e("ReaderVM", "Erreur prononciation: ${e.message}", e)
+                Log.e("ReaderVM", "Error bookmark: ${e.message}", e)
             }
         }
     }
 
-    /**
-     * Navigue vers une phrase précise (chapitre + index) et consomme
-     * l'événement pour éviter les doubles déclenchements.
-     */
-    fun scrollToSentence(chapterIndex: Int, sentenceIndex: Int) {
-        if (chapterIndex != _uiState.value.currentChapterIndex) {
-            loadChapter(chapterIndex, sentenceIndex)
-        } else {
-            _uiState.update { it.copy(currentSentenceIndex = sentenceIndex) }
+    fun addHighlight(sentenceIndex: Int, selectedText: String, startOffset: Int, endOffset: Int) {
+        val book = currentBook ?: return
+        viewModelScope.launch {
+            try {
+                val chapterIdx = _uiState.value.currentChapterIndex
+                highlightDao.insertHighlight(
+                    HighlightEntity(
+                        bookId = book.id,
+                        chapterIndex = chapterIdx,
+                        sentenceIndex = sentenceIndex,
+                        startOffset = startOffset,
+                        endOffset = endOffset,
+                        selectedText = selectedText,
+                        colorHex = "#FFEB3D"
+                    )
+                )
+                _uiState.update { it.copy(lastAction = "Surlignage ajouté") }
+                reloadAnnotations(book.id, chapterIdx)
+            } catch (e: Exception) {
+                Log.e("ReaderVM", "Error highlight: ${e.message}", e)
+            }
         }
-        _scrollTarget.value = Pair(chapterIndex, sentenceIndex)
     }
 
-    /** Consomme la cible de scroll après que l'UI l'a traitée. */
-    fun consumeScrollTarget() {
-        _scrollTarget.value = null
+    fun addAnnotation(sentenceIndex: Int, selectedText: String) {
+        val book = currentBook ?: return
+        viewModelScope.launch {
+            try {
+                val chapterIdx = _uiState.value.currentChapterIndex
+                annotationDao.insertAnnotation(
+                    AnnotationEntity(
+                        bookId = book.id,
+                        chapterIndex = chapterIdx,
+                        sentenceIndex = sentenceIndex,
+                        selectedText = selectedText,
+                        colorHex = "#FFF9C4"
+                    )
+                )
+                _uiState.update { it.copy(lastAction = "Annotation ajoutée") }
+                reloadAnnotations(book.id, chapterIdx)
+            } catch (e: Exception) {
+                Log.e("ReaderVM", "Error annotation: ${e.message}", e)
+            }
+        }
+    }
+
+    private suspend fun reloadAnnotations(bookId: String, chapterIdx: Int) {
+        try {
+            val highlights = highlightDao.getHighlightsForChapter(bookId, chapterIdx).first()
+            val bookmarks = bookmarkDao.getBookmarks(bookId).first()
+            _uiState.update { it.copy(highlights = highlights, bookmarks = bookmarks) }
+        } catch (e: Exception) {
+            Log.e("ReaderVM", "Error reloading annotations: ${e.message}", e)
+        }
+    }
+
+    fun clearAction() {
+        _uiState.update { it.copy(lastAction = null) }
     }
 }
-

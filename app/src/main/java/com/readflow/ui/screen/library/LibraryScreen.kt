@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,11 +65,6 @@ fun LibraryScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Wrapper qui enregistre l'ouverture avant de naviguer
-    val handleBookClick: (String) -> Unit = { bookId ->
-        state.allBooks.find { it.id == bookId }?.let { viewModel.recordBookOpen(it) }
-        onBookClick(bookId)
-    }
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = AppBackground
@@ -101,11 +97,61 @@ fun LibraryScreen(
 
                     // Loading overlay pendant import
                     if (state.isLoading) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = AccentBlue)
-                                Spacer(Modifier.height(12.dp))
-                                Text("Importation en cours...", color = TextMuted, fontSize = 14.sp)
+                        Box(
+                            Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .padding(24.dp)
+                                    .fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                val progress = state.importProgress
+                                val status = state.importStatus ?: "Importation en cours..."
+
+                                if (progress != null) {
+                                    CircularProgressIndicator(
+                                        progress = { progress },
+                                        color = AccentBlue,
+                                        strokeWidth = 4.dp,
+                                        modifier = Modifier.size(56.dp)
+                                    )
+                                    Spacer(Modifier.height(16.dp))
+                                    Text(
+                                        text = "${(progress * 100).toInt()}%",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 18.sp
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = status,
+                                        color = TextMuted,
+                                        fontSize = 14.sp,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                    Spacer(Modifier.height(16.dp))
+                                    LinearProgressIndicator(
+                                        progress = { progress },
+                                        color = AccentBlue,
+                                        trackColor = Color.White.copy(alpha = 0.1f),
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.8f)
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                    )
+                                } else {
+                                    CircularProgressIndicator(color = AccentBlue)
+                                    Spacer(Modifier.height(12.dp))
+                                    Text(
+                                        text = status,
+                                        color = TextMuted,
+                                        fontSize = 14.sp,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -114,14 +160,12 @@ fun LibraryScreen(
                             when {
                                 state.isLoading && state.books.isEmpty() -> LoadingView()
                                 state.books.isEmpty() && !state.isLoading -> EmptyView()
-                                else -> ShelfGrid(state.books, handleBookClick, state.bookProgress)
+                                else -> ShelfGrid(state.books, state.bookProgress, onBookClick)
                             }
                         }
                         NavigationDestination.RECENTS -> {
-                            val recent = state.recentBooks.mapNotNull { entity ->
-                                state.allBooks.find { it.id == entity.bookId }
-                            }
-                            if (recent.isEmpty()) EmptyView() else ShelfGrid(recent, handleBookClick, state.bookProgress)
+                            val recent = state.allBooks.sortedByDescending { it.addedAt }
+                            if (recent.isEmpty()) EmptyView() else ShelfGrid(recent, state.bookProgress, onBookClick)
                         }
                         NavigationDestination.FILES -> {
                             FilesScreen(
@@ -153,11 +197,11 @@ fun LibraryScreen(
                                 onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
                             )
                         }
-                        NavigationDestination.ABOUT -> {
-                            com.readflow.ui.screen.about.AboutScreen()
-                        }
                         NavigationDestination.SETTINGS -> {
                             com.readflow.ui.screen.settings.SettingsScreen()
+                        }
+                        NavigationDestination.ABOUT -> {
+                            com.readflow.ui.screen.about.AboutScreen()
                         }
                     }
                     } // end else (isLoading)
@@ -191,8 +235,7 @@ fun LibraryScreen(
         if (showOverflow) {
             OverflowMenu(
                 onDismiss = { showOverflow = false },
-                onImport = { epubPicker.launch(arrayOf("application/epub+zip")) },
-                onSync = { viewModel.navigateTo(NavigationDestination.SYNC); showOverflow = false }
+                onImport = { epubPicker.launch(arrayOf("application/epub+zip")) }
             )
         }
 
@@ -218,10 +261,8 @@ fun LibraryScreen(
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 20.dp),
             onReadResume = {
-                val latest = state.recentBooks.firstOrNull()
-                if (latest != null) {
-                    onBookClick(latest.bookId)
-                }
+                val latest = state.allBooks.sortedByDescending { it.addedAt }.firstOrNull()
+                if (latest != null) onBookClick(latest.id)
             }
         )
     }
@@ -320,7 +361,7 @@ private fun SearchBar(
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun ShelfGrid(books: List<Book>, onBookClick: (String) -> Unit, bookProgress: Map<String, Int> = emptyMap()) {
+private fun ShelfGrid(books: List<Book>, progressMap: Map<String, Float>, onBookClick: (String) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         contentPadding = PaddingValues(12.dp),
@@ -329,10 +370,11 @@ private fun ShelfGrid(books: List<Book>, onBookClick: (String) -> Unit, bookProg
         modifier = Modifier.padding(bottom = 80.dp)
     ) {
         items(books, key = { it.id }) { book ->
+            val progress = progressMap[book.id] ?: 0f
             BookCover(
                 book = book,
+                progress = progress,
                 gradientIndex = book.title.hashCode().mod(CoverGradients.size),
-                progress = bookProgress[book.id] ?: 0,
                 onClick = { onBookClick(book.id) }
             )
         }
@@ -340,20 +382,37 @@ private fun ShelfGrid(books: List<Book>, onBookClick: (String) -> Unit, bookProg
 }
 
 @Composable
+private fun rememberBookCoverPainter(coverPath: String?): androidx.compose.ui.graphics.ImageBitmap? {
+    if (coverPath == null) return null
+    return remember(coverPath) {
+        try {
+            val file = java.io.File(coverPath)
+            if (file.exists()) {
+                val bitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                bitmap?.asImageBitmap()
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
+@Composable
 private fun BookCover(
     book: Book,
+    progress: Float,
     gradientIndex: Int,
-    progress: Int = 0,
     onClick: () -> Unit
 ) {
     val gradient = CoverGradients[gradientIndex.coerceIn(0, CoverGradients.lastIndex)]
+    val coverBitmap = rememberBookCoverPainter(book.coverPath)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
-        // Couverture avec gradient
+        // Couverture avec gradient ou image
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -361,21 +420,29 @@ private fun BookCover(
                 .clip(RoundedCornerShape(3.dp))
                 .background(Brush.linearGradient(gradient))
         ) {
-            // Titre sur la couverture
-            Text(
-                book.title,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.95f),
-                lineHeight = 14.sp,
-                modifier = Modifier.padding(8.dp),
-                maxLines = 5,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (coverBitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = coverBitmap,
+                    contentDescription = book.title,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                // Titre sur la couverture si pas d'image
+                Text(
+                    book.title,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = Color.White.copy(alpha = 0.95f),
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(8.dp),
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             // Badge progression (%)
-            // TODO: utiliser la progression réelle
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -387,7 +454,7 @@ private fun BookCover(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        "$progress%",
+                        "${(progress * 100).toInt().coerceIn(0, 100)}%",
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -741,7 +808,7 @@ private fun FilterAndSortDialog(
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun OverflowMenu(onDismiss: () -> Unit, onImport: () -> Unit, onSync: () -> Unit = {}) {
+private fun OverflowMenu(onDismiss: () -> Unit, onImport: () -> Unit) {
     // Overlay pour fermer au tap extérieur
     Box(
         modifier = Modifier
@@ -765,7 +832,7 @@ private fun OverflowMenu(onDismiss: () -> Unit, onImport: () -> Unit, onSync: ()
                 OverflowMenuItem("Reconstruire les couvertures", Icons.Default.Refresh) { onDismiss() }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 OverflowMenuItem("Synchroniser avec le cloud", Icons.Default.CloudUpload,
-                    color = AccentBlue) { onDismiss(); onSync() }
+                    color = AccentBlue) { onDismiss() }
             }
         }
     }
@@ -838,7 +905,7 @@ private fun NavDrawer(
                 // Menu items dynamiques
                 Column(modifier = Modifier.weight(1f)) {
                     NavigationDestination.entries
-                        .filter { it != NavigationDestination.ABOUT && it != NavigationDestination.SETTINGS }
+                        .filter { it != NavigationDestination.SETTINGS && it != NavigationDestination.ABOUT }
                         .forEach { dest ->
                         val isActive = dest == currentDest
                         Surface(

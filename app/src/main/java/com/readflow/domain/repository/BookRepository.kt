@@ -7,7 +7,11 @@ import java.io.InputStream
 
 interface BookRepository {
     /** Importe un EPUB depuis un InputStream et retourne le [Book] créé. */
-    suspend fun importEpub(inputStream: InputStream, fileName: String): Book
+    suspend fun importEpub(
+        inputStream: InputStream,
+        fileName: String,
+        onProgress: (progress: Float, status: String) -> Unit = { _, _ -> }
+    ): Book
 
     /** Récupère un chapitre complet (texte découpé en phrases). */
     suspend fun getChapter(bookId: String, chapterIndex: Int): Chapter

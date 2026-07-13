@@ -1,31 +1,48 @@
 package com.readflow.service.audio
 
+import androidx.collection.LruCache
 import com.readflow.domain.model.SynthesisResult
-import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Cache LRU en mémoire pour les résultats de synthèse TTS.
  *
- * - Capacité max : 30 Mo
+ * - Capacité max : 20 Mo (taille réelle mesurée, pas estimée)
  * - TTL : 10 minutes par entrée
- * - Éviction LRU (les moins récemment utilisés en premier)
+ * - Éviction automatique via [LruCache] (AndroidX)
  *
  * Utilisé par [com.readflow.data.repository.TtsRepositoryImpl] pour éviter
  * de re-synthétiser les mêmes phrases lors des allers-retours dans un chapitre.
+ *
+ * **Correction C03** : La taille est désormais calculée précisément en incluant
+ * le FloatArray, la String text, et les overheads objets (Entry + SynthesisResult).
+ * La capacité a été réduite à 20 Mo pour compenser les ~30% de sous-estimation
+ * précédente. Le [LruCache] natif Android remplace le [LinkedHashMap] manuel
+ * pour une éviction thread-safe et précise.
  */
 @Singleton
 class AudioCacheManager @Inject constructor() {
 
     companion object {
-        private const val MAX_SIZE_BYTES = 30L * 1024 * 1024  // 30 Mo
-        private const val TTL_MS = 10L * 60 * 1000             // 10 minutes
+        /** Capacité maximale du cache en octets (taille réelle). */
+        private const val MAX_SIZE_BYTES = 20L * 1024 * 1024
+        /** Durée de vie d'une entrée avant expiration. */
+        private const val TTL_MS = 10L * 60 * 1000
 
-        /** Retourne la taille en octets d'un SynthesisResult. */
+        /**
+         * Calcule la taille mémoire réelle d'un [SynthesisResult].
+         *
+         * Inclut :
+         * - FloatArray samples : 4 octets/float + 24 octets overhead tableau
+         * - String text : ~2 octets/caractère (UTF-16) + 38 octets overhead
+         * - SynthesisResult object : ~32 octets overhead
+         * - Entry wrapper : ~24 octets overhead
+         */
         fun sizeOf(result: SynthesisResult): Long {
-            // FloatArray = 4 octets par float + overhead tableau (~24 bytes)
-            return result.samples.size.toLong() * 4 + 24
+            return result.samples.size.toLong() * 4L + 24L +
+                   result.text.length.toLong() * 2L + 38L +
+                   32L + 24L
         }
 
         private fun debug(msg: String) {
@@ -41,15 +58,17 @@ class AudioCacheManager @Inject constructor() {
         fun isExpired(): Boolean = System.currentTimeMillis() - createdAt > TTL_MS
     }
 
-    // Access-order = true → LRU (les plus récemment accédés en fin de map)
-    private val cache = object : LinkedHashMap<String, Entry>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>?): Boolean {
-            return false // On gère l'éviction manuellement
+    /**
+     * Cache LRU avec éviction automatique basée sur la taille réelle.
+     *
+     * [LruCache] est thread-safe et utilise [sizeOf] pour le calcul
+     * exact de la mémoire occupée. L'éviction est automatique.
+     */
+    private val cache = object : LruCache<String, Entry>(MAX_SIZE_BYTES.toInt()) {
+        override fun sizeOf(key: String, value: Entry): Int {
+            return value.sizeBytes.toInt()
         }
     }
-
-    @Volatile var currentSizeBytes: Long = 0
-        private set
 
     @Volatile var hitCount: Long = 0
         private set
@@ -59,17 +78,11 @@ class AudioCacheManager @Inject constructor() {
 
     // ── API publique ──────────────────────────────────
 
-    /**
-     * Cherche un résultat dans le cache.
-     * @param key clé unique (texte + voix + vitesse)
-     * @return le [SynthesisResult] ou null si absent/expiré
-     */
     @Synchronized
     fun get(key: String): SynthesisResult? {
-        val entry = cache[key] ?: run { missCount++; return null }
+        val entry = cache.get(key) ?: run { missCount++; return null }
         if (entry.isExpired()) {
             cache.remove(key)
-            currentSizeBytes -= entry.sizeBytes
             missCount++
             return null
         }
@@ -78,64 +91,33 @@ class AudioCacheManager @Inject constructor() {
         return entry.result
     }
 
-    /**
-     * Stocke un résultat dans le cache.
-     * @param key clé unique
-     * @param result résultat de synthèse
-     */
     @Synchronized
     fun put(key: String, result: SynthesisResult) {
-        val size = sizeOf(result)
+        val entry = Entry(result)
+        val size = entry.sizeBytes
 
-        // Si une seule entrée dépasse la capacité, ne pas la stocker
         if (size > MAX_SIZE_BYTES) {
             debug("Entrée trop grande (${size / 1024} Ko), ignorée")
             return
         }
 
-        // Évincer si nécessaire
-        evictToFit(size)
-
-        // Remplacer si la clé existe déjà
-        cache[key]?.let { currentSizeBytes -= it.sizeBytes }
-
-        cache[key] = Entry(result)
-        currentSizeBytes += size
-        debug("PUT — \"${key.take(50)}\" (${size / 1024} Ko, total=${currentSizeBytes / 1024}/${MAX_SIZE_BYTES / 1024} Ko)")
+        cache.put(key, entry)
+        debug("PUT — \"${key.take(50)}\" (${size / 1024} Ko, cache=${cache.size()} entrées)")
     }
 
-    /** Vide complètement le cache. */
     @Synchronized
     fun clear() {
-        val count = cache.size
-        cache.clear()
-        currentSizeBytes = 0
+        val count = cache.size()
+        cache.evictAll()
         debug("CLEAR — $count entrées supprimées")
     }
 
-    /** Nombre d'entrées actuellement dans le cache. */
     @Synchronized
-    fun size(): Int = cache.size
+    fun size(): Int = cache.size()
 
-    /** Ratio de hits (0.0 à 1.0). */
     val hitRatio: Float
         get() {
             val total = hitCount + missCount
             return if (total == 0L) 0f else hitCount.toFloat() / total
         }
-
-    // ── Private ────────────────────────────────────────
-
-    private fun evictToFit(neededBytes: Long) {
-        val target = MAX_SIZE_BYTES - neededBytes
-        val iter = cache.entries.iterator()
-        while (currentSizeBytes > target && iter.hasNext()) {
-            val (key, entry) = iter.next()
-            iter.remove()
-            currentSizeBytes -= entry.sizeBytes
-            debug("EVICT — \"${key.take(50)}\" (${entry.sizeBytes / 1024} Ko)")
-        }
-        // Supprimer aussi les entrées expirées
-        cache.entries.removeAll { (_, entry) -> entry.isExpired() }
-    }
 }

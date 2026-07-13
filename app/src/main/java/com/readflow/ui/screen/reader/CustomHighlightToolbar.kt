@@ -13,7 +13,7 @@ import androidx.compose.ui.platform.TextToolbarStatus
 
 class HighlightTextToolbar(
     private val defaultToolbar: TextToolbar,
-    private val onShow: (Rect, (() -> Unit)?) -> Unit,
+    private val onShow: (Rect, (() -> Unit)?, (() -> Unit)?) -> Unit,
     private val onHide: () -> Unit
 ) : TextToolbar {
 
@@ -27,7 +27,7 @@ class HighlightTextToolbar(
         onCutRequested: (() -> Unit)?,
         onSelectAllRequested: (() -> Unit)?
     ) {
-        onShow(rect, onCopyRequested)
+        onShow(rect, onCopyRequested, onSelectAllRequested)
     }
 
     override fun hide() {
@@ -38,7 +38,7 @@ class HighlightTextToolbar(
 
 @Composable
 fun HighlightSelectionWrapper(
-    onSelection: (Rect?, (() -> Unit)?) -> Unit,
+    onSelection: (Rect?, (() -> Unit)?, (() -> Unit)?) -> Unit,
     content: @Composable () -> Unit
 ) {
     val defaultToolbar = LocalTextToolbar.current
@@ -46,8 +46,8 @@ fun HighlightSelectionWrapper(
     val customToolbar = remember {
         HighlightTextToolbar(
             defaultToolbar = defaultToolbar,
-            onShow = { rect, onCopy -> onSelection(rect, onCopy) },
-            onHide = { onSelection(null, null) }
+            onShow = { rect, onCopy, onSelectAll -> onSelection(rect, onCopy, onSelectAll) },
+            onHide = { onSelection(null, null, null) }
         )
     }
 

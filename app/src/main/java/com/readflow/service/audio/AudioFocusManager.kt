@@ -13,38 +13,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Callback pour les changements de focus audio Android.
- * Implémenté par [PlaybackOrchestrator] pour réagir
- * aux événements système (appels, notifications, débranchement casque).
- */
 interface AudioFocusListener {
-    /** Le focus audio est regagné : la lecture peut reprendre. */
     fun onFocusGained()
-
-    /**
-     * Le focus audio est perdu.
-     * @param isPermanent true si perte définitive (appel entrant, autre app média).
-     *                    false si perte temporaire (notification courte, ducking).
-     */
     fun onFocusLost(isPermanent: Boolean)
-
-    /** L'utilisateur a débranché ses écouteurs ou le Bluetooth s'est déconnecté. */
     fun onAudioBecomingNoisy()
+    fun onDuck()
+    fun onUnduck()
 }
-
-/**
- * Gère le focus audio Android pour ReadFlow.
- *
- * Délègue les décisions de pause/reprise via [AudioFocusListener].
- * S'abonne au broadcast [AudioManager.ACTION_AUDIO_BECOMING_NOISY]
- * pour détecter le débranchement des écouteurs.
- *
- * Usage :
- * 1. Enregistrer un listener via [setListener]
- * 2. Appeler [requestFocus] avant de lancer la lecture
- * 3. Appeler [abandonFocus] quand la lecture est terminée
- */
 
 @Singleton
 class AudioFocusManager @Inject constructor(
@@ -60,10 +35,9 @@ class AudioFocusManager @Inject constructor(
     @Volatile
     private var listener: AudioFocusListener? = null
 
-    // ── AudioFocusRequest (API ≥ 26, réutilisé pour abandon) ──
     private var focusRequest: AudioFocusRequest? = null
+    private var isDucked = false
 
-    // ── BroadcastReceiver pour ACTION_AUDIO_BECOMING_NOISY ──
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
@@ -75,12 +49,16 @@ class AudioFocusManager @Inject constructor(
 
     private var noisyReceiverRegistered = false
 
-    // ── Listener interne de focus ──
     private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         Log.d(TAG, "Focus change: ${focusChangeToString(change)}")
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
-                listener?.onFocusGained()
+                if (isDucked) {
+                    isDucked = false
+                    listener?.onUnduck()
+                } else {
+                    listener?.onFocusGained()
+                }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 unregisterNoisyReceiver()
@@ -90,24 +68,16 @@ class AudioFocusManager @Inject constructor(
                 listener?.onFocusLost(isPermanent = false)
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                // Le ducking (baisse de volume) n'est pas adapté pour
-                // du texte parlé → on traite comme une perte temporaire.
-                listener?.onFocusLost(isPermanent = false)
+                isDucked = true
+                listener?.onDuck()
             }
         }
     }
 
-    // ── API publique ──────────────────────────────────
-
-    /** Enregistre le listener qui recevra les callbacks de focus. */
     fun setListener(newListener: AudioFocusListener?) {
         listener = newListener
     }
 
-    /**
-     * Demande le focus audio permanent.
-     * @return true si le focus a été accordé, false sinon.
-     */
     fun requestFocus(): Boolean {
         val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val attrs = AudioAttributes.Builder()
@@ -138,7 +108,6 @@ class AudioFocusManager @Inject constructor(
         return granted
     }
 
-    /** Abandonne le focus audio. */
     fun abandonFocus() {
         unregisterNoisyReceiver()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -148,10 +117,9 @@ class AudioFocusManager @Inject constructor(
             @Suppress("DEPRECATION")
             audioManager.abandonAudioFocus(focusChangeListener)
         }
+        isDucked = false
         Log.d(TAG, "Focus abandonné")
     }
-
-    // ── Private ───────────────────────────────────────
 
     private fun registerNoisyReceiver() {
         if (noisyReceiverRegistered) return
@@ -173,7 +141,6 @@ class AudioFocusManager @Inject constructor(
         try {
             context.unregisterReceiver(noisyReceiver)
         } catch (_: IllegalArgumentException) {
-            // déjà désenregistré
         }
         noisyReceiverRegistered = false
         Log.d(TAG, "NoisyReceiver désenregistré")

@@ -3,64 +3,32 @@ package com.readflow.ui.screen.reader
 import android.app.Activity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.Hyphens
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.readflow.data.database.entity.AnnotationEntity
-import com.readflow.data.database.entity.HighlightEntity
-import com.readflow.data.database.entity.PronunciationRule
-import com.readflow.domain.model.Chapter
-import com.readflow.service.audio.PlaybackState
-import com.readflow.service.audio.PlaybackStatus
-import com.readflow.ui.theme.OpenDyslexicFamily
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
-// ─────────────────────────────────────────────────────
-//  READER SCREEN — Immersif, style Moon+ Reader
-// ─────────────────────────────────────────────────────
+private data class SelectionInfo(
+    val sentenceIndex: Int,
+    val selectedText: String
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,9 +41,6 @@ fun ReaderScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val playbackState by viewModel.playbackState.collectAsState()
-    val highlights by viewModel.highlights.collectAsState()
-    val chapterHighlights by viewModel.chapterHighlights.collectAsState()
-    val scrollTarget by viewModel.scrollTarget.collectAsState()
     val chapter = state.currentChapter
     val book = state.book
 
@@ -108,55 +73,107 @@ fun ReaderScreen(
 
     // Taille de l'écran pour le tiers central
     var screenSize by remember { mutableStateOf(IntSize.Zero) }
+    var readingMode by remember { mutableStateOf(ReadingMode.PAGED) }
+
+    // État de la sélection de texte
+    var selectionState by remember { mutableStateOf<SelectionInfo?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
+    // Feedback Snackbar après chaque action
+    LaunchedEffect(state.lastAction) {
+        state.lastAction?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearAction()
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
             .onSizeChanged { screenSize = it }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Final)
-                        val change = event.changes.firstOrNull() ?: continue
-                        // Ne traiter que les taps non consommés (scroll et sélection passent avant)
-                        if (!change.isConsumed && change.pressed.not()) {
-                            change.consume()
-                            val offset = change.position
-                            if (screenSize.width > 0) {
-                                val left = screenSize.width / 3f
-                                val right = 2f * screenSize.width / 3f
-                                if (offset.x in left..right) {
-                                    viewModel.toggleHud()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
     ) {
         // ── COUCHE 0 : Texte (100% espace, jamais ne bouge) ─
         when {
             state.isLoading -> LoadingIndicator()
             state.error != null -> ErrorMessage(state.error!!)
-            chapter != null -> ImmersiveText(
+            chapter != null -> ReaderContent(
                 chapter = chapter,
                 playbackState = playbackState,
                 textColor = textColor,
                 accentColor = accentColor,
-                useOpenDyslexic = state.useOpenDyslexic,
-                chapterHighlights = chapterHighlights,
+                readerFont = state.readerFont,
+                fontSizeSp = state.fontSizeSp,
+                lineHeightEm = state.lineHeightEm,
+                horizontalMarginDp = state.horizontalMarginDp,
+                readingMode = readingMode,
                 currentChapterIndex = state.currentChapterIndex,
-                onSaveHighlight = { sentIdx, start, end, text, color ->
-                    viewModel.saveHighlight(sentIdx, start, end, text, color)
+                totalChapters = book?.totalChapters ?: 1,
+                isLoadingChapter = state.isLoadingChapter,
+                onToggleMode = { readingMode = if (readingMode == ReadingMode.PAGED) ReadingMode.SCROLL else ReadingMode.PAGED },
+                onPageTurned = { viewModel.hideHud() },
+                onNextChapter = { viewModel.nextChapter() },
+                onTextSelected = { idx, text ->
+                    selectionState = SelectionInfo(idx, text)
                 },
-                onDeleteHighlight = { viewModel.deleteHighlight(it) },
-                onSaveNote = { id, note -> viewModel.saveNoteForHighlight(id, note) },
-                onPronounceSelection = { text ->
-                    viewModel.pronounceSelectedText(text)
+                onSelectionDismissed = {
+                    selectionState = null
                 },
-                scrollTarget = scrollTarget,
-                onConsumeScrollTarget = { viewModel.consumeScrollTarget() }
+                highlights = state.highlights,
+                bookmarks = state.bookmarks,
+                onTap = { offset ->
+                        // Tiers central uniquement
+                        if (screenSize.width > 0) {
+                            val left = screenSize.width / 3f
+                            val right = 2f * screenSize.width / 3f
+                            if (offset.x in left..right) {
+                                viewModel.toggleHud()
+                            }
+                        }
+                    }
+                )
+            }
+
+        // ── Barre d'actions de sélection ────────────
+        AnimatedVisibility(
+            visible = selectionState != null,
+            enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            SelectionActionBar(
+                accentColor = accentColor,
+                bgColor = bgColor,
+                textColor = textColor,
+                onCopy = {
+                    selectionState?.let {
+                        clipboardManager.setText(AnnotatedString(it.selectedText))
+                    }
+                    selectionState = null
+                },
+                onHighlight = {
+                    val s = selectionState ?: return@SelectionActionBar
+                    val sentence = chapter?.sentences?.getOrNull(s.sentenceIndex) ?: return@SelectionActionBar
+                    viewModel.addHighlight(
+                        sentenceIndex = s.sentenceIndex,
+                        selectedText = s.selectedText,
+                        startOffset = sentence.startOffset,
+                        endOffset = sentence.endOffset
+                    )
+                    selectionState = null
+                },
+                onNote = {
+                    val s = selectionState ?: return@SelectionActionBar
+                    viewModel.addAnnotation(s.sentenceIndex, s.selectedText)
+                    selectionState = null
+                },
+                onBookmark = {
+                    val s = selectionState ?: return@SelectionActionBar
+                    viewModel.addBookmark(s.sentenceIndex, s.selectedText)
+                    selectionState = null
+                }
             )
         }
 
@@ -185,11 +202,12 @@ fun ReaderScreen(
             ReaderTopBar(
                 title = book?.title ?: "",
                 subtitle = "Ch. ${state.currentChapterIndex + 1}/${book?.totalChapters ?: 0}",
+                readingMode = readingMode,
+                onToggleMode = { readingMode = if (readingMode == ReadingMode.PAGED) ReadingMode.SCROLL else ReadingMode.PAGED },
                 onBack = onBack,
                 onToc = { viewModel.showTocSheet() },
                 onBookmarks = { book?.title?.let { onBookmarksClick(it) } },
-                onSearch = { book?.title?.let { onSearchClick(it) } },
-                onAnnotations = { viewModel.showAnnotationsSheet() }
+                onSearch = { book?.title?.let { onSearchClick(it) } }
             )
         }
 
@@ -210,13 +228,23 @@ fun ReaderScreen(
                 panelBg = panelBg,
                 useOpenDyslexic = state.useOpenDyslexic,
                 onTtsClick = { if (state.isPlaying) viewModel.pause() else viewModel.play() },
+                onTtsSettingsClick = { viewModel.showTtsSheet() },
                 onThemeCycle = { viewModel.cycleTheme() },
                 onFontToggle = { viewModel.toggleOpenDyslexic() },
+                onDisplaySettingsClick = { viewModel.showSettingsSheet() },
                 onPrevChapter = { viewModel.previousChapter() },
-                onNextChapter = { viewModel.nextChapter() },
-                onSettingsClick = { viewModel.showTtsSheet() }
+                onNextChapter = { viewModel.nextChapter() }
             )
         }
+
+        // Snackbar de feedback
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
+                .padding(bottom = 8.dp, start = 16.dp, end = 16.dp)
+        )
     }
 
     // ── Panneau TTS ───────────────────────
@@ -227,6 +255,9 @@ fun ReaderScreen(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.3f)) }
         ) {
+            val sleepRemaining by viewModel.sleepTimerRemaining.collectAsState()
+            val rules by viewModel.pronunciationRules.collectAsState()
+
             TtsPanel(
                 chapterTitle = chapter?.title ?: "",
                 sentenceIndex = state.currentSentenceIndex,
@@ -241,17 +272,54 @@ fun ReaderScreen(
                 onVoiceChange = { viewModel.setVoice(it) },
                 currentSpeed = state.speed,
                 currentVoice = state.voice,
-                // Sleep timer
-                sleepTimerRemaining = viewModel.sleepTimerRemaining.collectAsState().value,
+                sleepTimerRemaining = sleepRemaining,
                 onStartSleepTimer = { viewModel.startSleepTimer(it) },
                 onCancelSleepTimer = { viewModel.cancelSleepTimer() },
-                // Pronunciation
-                pronunciationRules = viewModel.pronunciationRules.collectAsState().value,
-                onAddRule = { pattern, replacement, isRegex ->
-                    viewModel.addPronunciationRule(pattern, replacement, isRegex)
-                },
-                onDeleteRule = { viewModel.deletePronunciationRule(it) },
-                onToggleRule = { viewModel.togglePronunciationRule(it) }
+                pronunciationRules = rules,
+                onAddPronunciationRule = { orig, rep, reg -> viewModel.addPronunciationRule(orig, rep, reg) },
+                onDeletePronunciationRule = { viewModel.deletePronunciationRule(it) },
+                onTogglePronunciationRule = { viewModel.togglePronunciationRule(it) }
+            )
+        }
+    }
+
+    // ── COUCHE 3 : Options d'affichage et typographie ─
+    if (state.isSettingsSheetVisible) {
+        val sheetBg = when (state.readerTheme) {
+            ReaderTheme.DAY -> Color(0xFFFAFAFA)
+            ReaderTheme.SEPIA -> Color(0xFFF4ECD8)
+            ReaderTheme.NIGHT -> Color(0xFF121212)
+        }
+        val sheetTextColor = when (state.readerTheme) {
+            ReaderTheme.DAY -> Color(0xFF1A1A1A)
+            ReaderTheme.SEPIA -> Color(0xFF3C2F2F)
+            ReaderTheme.NIGHT -> Color(0xFFFAFAFA)
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.hideSettingsSheet() },
+            containerColor = sheetBg,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            dragHandle = {
+                BottomSheetDefaults.DragHandle(
+                    color = sheetTextColor.copy(alpha = 0.3f)
+                )
+            }
+        ) {
+            ReaderSettingsPanel(
+                currentTheme = state.readerTheme,
+                currentFont = state.readerFont,
+                fontSizeSp = state.fontSizeSp,
+                lineHeightEm = state.lineHeightEm,
+                horizontalMarginDp = state.horizontalMarginDp,
+                onThemeChange = { viewModel.setReaderTheme(it) },
+                onFontChange = { viewModel.setReaderFont(it) },
+                onFontSizeChange = { viewModel.setFontSize(it) },
+                onLineHeightChange = { viewModel.setLineHeight(it) },
+                onHorizontalMarginChange = { viewModel.setHorizontalMargin(it) },
+                accentColor = accentColor,
+                panelBg = sheetBg,
+                textColor = sheetTextColor
             )
         }
     }
@@ -265,7 +333,7 @@ fun ReaderScreen(
             dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.3f)) }
         ) {
             ChapterPicker(
-                totalChapters = book?.totalChapters ?: 0,
+                totalChapters = book.totalChapters,
                 currentChapter = state.currentChapterIndex,
                 onSelect = { idx ->
                     viewModel.goToChapter(idx)
@@ -275,1205 +343,60 @@ fun ReaderScreen(
             )
         }
     }
-
-    // ── COUCHE 3 : Annotations & Surlignages ────────
-    if (state.isAnnotationsSheetVisible) {
-        ModalBottomSheet(
-            onDismissRequest = { viewModel.hideAnnotationsSheet() },
-            containerColor = Color(0xFF1E1E1E),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.3f)) }
-        ) {
-            AnnotationsDrawer(
-                highlights = highlights,
-                onHighlightClick = { hl ->
-                    viewModel.scrollToSentence(hl.chapterIndex, hl.sentenceIndex)
-                    viewModel.hideAnnotationsSheet()
-                    viewModel.hideHud()
-                },
-                onDeleteHighlight = { viewModel.deleteHighlight(it) },
-                onUpdateNote = { hl, note ->
-                    viewModel.saveNoteForHighlight(hl.id, note)
-                }
-            )
-        }
-    }
 }
 
 // ─────────────────────────────────────────────────────
-//  CHAPTER PICKER — Liste des chapitres
+//  BARRE D'ACTIONS DE SÉLECTION
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun ChapterPicker(
-    totalChapters: Int,
-    currentChapter: Int,
-    onSelect: (Int) -> Unit
-) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text("Table des matières",
-            color = Color.White.copy(alpha = 0.8f),
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(bottom = 12.dp))
-        for (i in 0 until totalChapters) {
-            val isCurrent = i == currentChapter
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp),
-                color = if (isCurrent) Color(0xFFFFB74D).copy(alpha = 0.15f)
-                        else Color.Transparent,
-                shape = RoundedCornerShape(8.dp),
-                onClick = { onSelect(i) }
-            ) {
-                Text(
-                    "Chapitre ${i + 1}",
-                    color = if (isCurrent) Color(0xFFFFB74D)
-                            else Color.White.copy(alpha = 0.65f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
-                )
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-    }
-}
-
-// ─────────────────────────────────────────────────────
-//  TOP BAR — Semi-transparente, titre centré
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun ReaderTopBar(
-    title: String,
-    subtitle: String,
-    onBack: () -> Unit,
-    onToc: () -> Unit,
-    onBookmarks: () -> Unit = {},
-    onSearch: () -> Unit = {},
-    onAnnotations: () -> Unit = {}
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFF0A0A0A).copy(alpha = 0.94f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                .padding(horizontal = 4.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour",
-                    tint = Color.White.copy(alpha = 0.85f))
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(title, color = Color.White.copy(alpha = 0.9f),
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, color = Color.White.copy(alpha = 0.45f),
-                    style = MaterialTheme.typography.labelSmall)
-            }
-            @Suppress("DEPRECATION")
-            IconButton(onClick = onSearch) {
-                Icon(Icons.Default.Search, "Rechercher",
-                    tint = Color.White.copy(alpha = 0.6f))
-            }
-            @Suppress("DEPRECATION")
-            IconButton(onClick = onAnnotations) {
-                Icon(Icons.Default.Edit, "Annotations",
-                    tint = Color.White.copy(alpha = 0.6f))
-            }
-            @Suppress("DEPRECATION")
-            IconButton(onClick = onBookmarks) {
-                Icon(Icons.Default.Bookmark, "Signets",
-                    tint = Color.White.copy(alpha = 0.6f))
-            }
-            @Suppress("DEPRECATION")
-            IconButton(onClick = onToc) {
-                Icon(Icons.Default.List, "TOC",
-                    tint = Color.White.copy(alpha = 0.6f))
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────
-//  UNIFIED CONTROL PANEL — 3 rangées
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun UnifiedControlPanel(
-    isPlaying: Boolean,
+private fun SelectionActionBar(
     accentColor: Color,
-    panelBg: Color,
-    useOpenDyslexic: Boolean = false,
-    onTtsClick: () -> Unit,
-    onThemeCycle: () -> Unit,
-    onFontToggle: () -> Unit,
-    onPrevChapter: () -> Unit,
-    onNextChapter: () -> Unit,
-    onSettingsClick: () -> Unit = {}
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = panelBg.copy(alpha = 0.94f),
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            // ── Rangée 1 : Outils rapides ────────────
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Play/Pause TTS
-                IconButton(onClick = onTtsClick) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        "TTS", tint = accentColor, modifier = Modifier.size(26.dp)
-                    )
-                }
-                // Taille texte
-                IconButton(onClick = { /* fontSize */ }) {
-                    Text("AA", color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
-                // Thème
-                IconButton(onClick = onThemeCycle) {
-                    Icon(Icons.Default.Palette, "Thème",
-                        tint = Color.White.copy(alpha = 0.6f))
-                }
-                // OpenDyslexic
-                IconButton(onClick = onFontToggle) {
-                    Text("D",
-                        color = if (useOpenDyslexic) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
-                        fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-                // Réglages TTS
-                IconButton(onClick = onSettingsClick) {
-                    Icon(
-                        Icons.Outlined.Headphones, "Réglages vocaux",
-                        tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            // ── Rangée 2 : Navigation chapitres ──────
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = onPrevChapter) {
-                    Text("◀ Chapitre précédent", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp)
-                }
-                Spacer(Modifier.width(24.dp))
-                TextButton(onClick = onNextChapter) {
-                    Text("Chapitre suivant ▶", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp)
-                }
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────
-//  TEXTE IMMERSIF — LazyColumn + AnnotatedString + Surlignages
-// ─────────────────────────────────────────────────────
-
-private const val BLUETOOTH_LATENCY_COMPENSATION_MS = 180L
-
-private val HIGHLIGHT_COLORS = listOf(
-    "#FFF59D" to "Jaune",
-    "#C8E6C9" to "Vert",
-    "#B3E5FC" to "Bleu",
-    "#F8BBD0" to "Rose"
-)
-
-@Composable
-private fun ImmersiveText(
-    chapter: Chapter,
-    playbackState: PlaybackState,
+    bgColor: Color,
     textColor: Color,
-    accentColor: Color,
-    useOpenDyslexic: Boolean = false,
-    chapterHighlights: List<HighlightEntity> = emptyList(),
-    currentChapterIndex: Int = 0,
-    onSaveHighlight: (sentIdx: Int, start: Int, end: Int, text: String, color: String) -> Unit = { _, _, _, _, _ -> },
-    onDeleteHighlight: (HighlightEntity) -> Unit = {},
-    onSaveNote: (highlightId: Long, note: String) -> Unit = { _, _ -> },
-    onPronounceSelection: (text: String) -> Unit = {},
-    scrollTarget: Pair<Int, Int>? = null,
-    onConsumeScrollTarget: () -> Unit = {}
-) {
-    val bodyFont = if (useOpenDyslexic) OpenDyslexicFamily else FontFamily.Serif
-    val listState = rememberLazyListState()
-    val sentences = chapter.sentences
-
-    val activeIdx = playbackState.activeSentenceIndex
-    val isSpeaking = playbackState.status == PlaybackStatus.PLAYING
-
-    // ── État de la barre flottante de surlignage ──
-    var selectionRect by remember { mutableStateOf<Rect?>(null) }
-    var showToolbar by remember { mutableStateOf(false) }
-    var onCopyCallback by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var showNoteDialog by remember { mutableStateOf(false) }
-    var noteText by remember { mutableStateOf("") }
-
-    // Capturer le contexte pour l'accès au clipboard
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-
-    // ── Index des highlights par phrase pour lookup rapide ──
-    val highlightMap = remember(chapterHighlights) {
-        chapterHighlights.groupBy { it.sentenceIndex }
-    }
-
-    // ── Autoscroll TTS ──
-    LaunchedEffect(activeIdx, isSpeaking) {
-        if (isSpeaking && activeIdx in sentences.indices) {
-            kotlinx.coroutines.delay(BLUETOOTH_LATENCY_COMPENSATION_MS)
-            val targetIndex = activeIdx + 1
-            if (targetIndex < listState.layoutInfo.totalItemsCount) {
-                listState.animateScrollToItem(
-                    index = targetIndex,
-                    scrollOffset = -(listState.layoutInfo.viewportSize.height / 3)
-                )
-            }
-        }
-    }
-
-    // ── Scroll ciblé (depuis le tiroir) ──
-    LaunchedEffect(scrollTarget) {
-        val target = scrollTarget ?: return@LaunchedEffect
-        val targetIdx = target.second + 1
-        if (targetIdx < listState.layoutInfo.totalItemsCount) {
-            listState.animateScrollToItem(
-                index = targetIdx.coerceAtLeast(0),
-                scrollOffset = -(listState.layoutInfo.viewportSize.height / 4)
-            )
-        }
-        onConsumeScrollTarget()
-    }
-
-    val highlightBg = accentColor.copy(alpha = 0.12f)
-
-    fun dismissToolbar() {
-        showToolbar = false
-        selectionRect = null
-        onCopyCallback = null
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        HighlightSelectionWrapper(
-            onSelection = { rect, onCopy ->
-                if (rect != null) {
-                    selectionRect = rect
-                    onCopyCallback = onCopy
-                    showToolbar = true
-                } else {
-                    dismissToolbar()
-                }
-            }
-        ) {
-            SelectionContainer {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.systemBars)
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
-                    userScrollEnabled = true
-                ) {
-                    item(key = "title") {
-                        Spacer(Modifier.height(24.dp))
-                        Text(
-                            chapter.title,
-                            fontFamily = bodyFont,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 22.sp,
-                            color = textColor.copy(alpha = 0.75f),
-                            lineHeight = 1.6.em
-                        )
-                        Spacer(Modifier.height(28.dp))
-                    }
-
-                    itemsIndexed(
-                        items = sentences,
-                        key = { index, _ -> "sent_$index" }
-                    ) { index, sentence ->
-                        val isActive = index == activeIdx && isSpeaking
-                        val sentenceHighlights = highlightMap[index]
-
-                        val annotated = buildAnnotatedString {
-                            append(sentence.text)
-                            sentenceHighlights?.forEach { hl ->
-                                val start = hl.startOffset.coerceIn(0, sentence.text.length)
-                                val end = hl.endOffset.coerceIn(start, sentence.text.length)
-                                if (start < end) {
-                                    val bgColor = try {
-                                        Color(android.graphics.Color.parseColor(hl.colorHex))
-                                    } catch (_: Exception) { Color(0xFFFFF59D) }
-                                    addStyle(
-                                        SpanStyle(background = bgColor.copy(alpha = 0.35f)),
-                                        start, end
-                                    )
-                                }
-                            }
-                            if (isActive && sentenceHighlights.isNullOrEmpty()) {
-                                addStyle(SpanStyle(background = highlightBg), 0, sentence.text.length)
-                            }
-                        }
-
-                        val bgModifier = if (isActive && sentenceHighlights.isNullOrEmpty()) {
-                            Modifier
-                                .background(color = highlightBg, shape = RoundedCornerShape(4.dp))
-                                .padding(horizontal = 4.dp, vertical = 2.dp)
-                        } else {
-                            Modifier.padding(vertical = 2.dp)
-                        }
-
-                        Text(
-                            text = annotated,
-                            fontFamily = bodyFont,
-                            fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
-                            fontSize = 17.sp,
-                            lineHeight = 1.6.em,
-                            textAlign = TextAlign.Justify,
-                            color = if (isActive) accentColor else textColor.copy(alpha = 0.88f),
-                            modifier = bgModifier
-                        )
-                    }
-
-                    item(key = "bottom_spacer") {
-                        Spacer(Modifier.height(120.dp))
-                    }
-                }
-            }
-        }
-
-        // ── Barre flottante de surlignage ──
-        if (showToolbar) {
-            FloatingHighlightToolbar(
-                rect = selectionRect!!,
-                onColorSelected = { colorHex ->
-                    // Copier le texte sélectionné puis sauvegarder
-                    onCopyCallback?.invoke()
-                    coroutineScope.launch {
-                        kotlinx.coroutines.delay(100)
-                        val clip = context.getSystemService(
-                            android.content.Context.CLIPBOARD_SERVICE
-                        ) as? android.content.ClipboardManager
-                        val text = clip?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                        if (text.isNotBlank()) {
-                            val sentIdx = sentences.indexOfFirst { it.text.contains(text) }
-                            if (sentIdx >= 0) {
-                                val sent = sentences[sentIdx]
-                                val start = sent.text.indexOf(text).coerceAtLeast(0)
-                                val end = (start + text.length).coerceAtMost(sent.text.length)
-                                onSaveHighlight(sentIdx, start, end, text, colorHex)
-                            }
-                        }
-                    }
-                    dismissToolbar()
-                },
-                onAddNote = {
-                    showNoteDialog = true
-                    noteText = ""
-                },
-                onCopy = { onCopyCallback?.invoke() },
-                onPronounce = {
-                    onCopyCallback?.invoke()
-                    coroutineScope.launch {
-                        kotlinx.coroutines.delay(100)
-                        val clip = context.getSystemService(
-                            android.content.Context.CLIPBOARD_SERVICE
-                        ) as? android.content.ClipboardManager
-                        val text = clip?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                        clip?.clearPrimaryClip()
-                        if (text.isNotBlank()) onPronounceSelection(text)
-                    }
-                },
-                onDismiss = { dismissToolbar() }
-            )
-        }
-
-        // ── Dialogue note ──
-        if (showNoteDialog) {
-            NoteEditDialog(
-                currentNote = noteText,
-                onDismiss = { showNoteDialog = false },
-                onSave = { newNote ->
-                    showNoteDialog = false
-                }
-            )
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────
-//  PANNEAU TTS — Modal Bottom Sheet
-// ─────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TtsPanel(
-    chapterTitle: String,
-    sentenceIndex: Int,
-    totalSentences: Int,
-    isPlaying: Boolean,
-    onPlay: () -> Unit,
-    onPause: () -> Unit,
-    onStop: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onSpeedChange: (Float) -> Unit,
-    onVoiceChange: (Int) -> Unit,
-    currentSpeed: Float,
-    currentVoice: Int,
-    // ── Sleep timer ──
-    sleepTimerRemaining: Long? = null,
-    onStartSleepTimer: (Int) -> Unit = {},
-    onCancelSleepTimer: () -> Unit = {},
-    // ── Pronunciation ──
-    pronunciationRules: List<PronunciationRule> = emptyList(),
-    onAddRule: (String, String, Boolean) -> Unit = { _, _, _ -> },
-    onDeleteRule: (PronunciationRule) -> Unit = {},
-    onToggleRule: (PronunciationRule) -> Unit = {}
-) {
-    var showAddRuleDialog by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Titre
-        Text(chapterTitle, color = Color.White.copy(alpha = 0.7f),
-            style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(4.dp))
-        Text("Phrase ${sentenceIndex + 1} / $totalSentences",
-            color = Color.White.copy(alpha = 0.35f),
-            style = MaterialTheme.typography.labelSmall)
-
-        Spacer(Modifier.height(24.dp))
-
-        // Contrôles lecture
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            IconButton(onClick = onPrevious, modifier = Modifier.size(44.dp)) {
-                Icon(Icons.Default.SkipPrevious, "Précédent",
-                    tint = Color.White.copy(alpha = 0.5f))
-            }
-
-            Spacer(Modifier.width(24.dp))
-
-            FilledIconButton(
-                onClick = { if (isPlaying) onPause() else onPlay() },
-                modifier = Modifier.size(64.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = Color(0xFFFFB74D)
-                )
-            ) {
-                Icon(
-                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Lire",
-                    modifier = Modifier.size(32.dp),
-                    tint = Color(0xFF0D0D0D)
-                )
-            }
-
-            Spacer(Modifier.width(24.dp))
-
-            IconButton(onClick = onNext, modifier = Modifier.size(44.dp)) {
-                Icon(Icons.Default.SkipNext, "Suivant",
-                    tint = Color.White.copy(alpha = 0.5f))
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        // Stop discret
-        TextButton(onClick = onStop) {
-            Text("⏹ Arrêter", color = Color.White.copy(alpha = 0.35f),
-                style = MaterialTheme.typography.labelSmall)
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        // Vitesse
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Vitesse", color = Color.White.copy(alpha = 0.5f),
-                style = MaterialTheme.typography.labelSmall)
-            Slider(
-                value = currentSpeed,
-                onValueChange = onSpeedChange,
-                valueRange = 0.5f..2.0f,
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color(0xFFFFB74D),
-                    activeTrackColor = Color(0xFFFFB74D)
-                )
-            )
-            Text("${"%.1f".format(currentSpeed)}x",
-                color = Color.White.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.labelSmall)
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // Voix
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Voix", color = Color.White.copy(alpha = 0.5f),
-                style = MaterialTheme.typography.labelSmall)
-            Spacer(Modifier.width(12.dp))
-            FilterChip(
-                selected = currentVoice == 0,
-                onClick = { onVoiceChange(0) },
-                label = { Text("Miro FR", style = MaterialTheme.typography.labelSmall) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = Color(0xFFFFB74D).copy(alpha = 0.25f),
-                    selectedLabelColor = Color.White
-                )
-            )
-        }
-
-        Spacer(Modifier.height(4.dp))
-
-        HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
-
-        // ── SECTION : Minuteur de mise en veille ────
-        SleepTimerSection(
-            sleepTimerRemaining = sleepTimerRemaining,
-            onStart = onStartSleepTimer,
-            onCancel = onCancelSleepTimer
-        )
-
-        HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
-
-        // ── SECTION : Dictionnaire de prononciation ──
-        PronunciationSection(
-            rules = pronunciationRules,
-            onAddClick = { showAddRuleDialog = true },
-            onDelete = onDeleteRule,
-            onToggle = onToggleRule
-        )
-
-        Spacer(Modifier.height(16.dp))
-    }
-
-    // ── Dialogue d'ajout de règle ──
-    if (showAddRuleDialog) {
-        AddPronunciationRuleDialog(
-            onDismiss = { showAddRuleDialog = false },
-            onConfirm = { pattern, replacement, isRegex ->
-                onAddRule(pattern, replacement, isRegex)
-                showAddRuleDialog = false
-            }
-        )
-    }
-}
-
-// ─────────────────────────────────────────────────────
-//  SECTION : Minuteur de mise en veille
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun SleepTimerSection(
-    sleepTimerRemaining: Long?,
-    onStart: (Int) -> Unit,
-    onCancel: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.Bedtime, "Sommeil",
-                tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("Minuteur de sommeil",
-                color = Color.White.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.labelLarge)
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        if (sleepTimerRemaining != null) {
-            // Compte à rebours actif
-            val totalSecs = sleepTimerRemaining / 1000
-            val minutes = (totalSecs / 60).toInt()
-            val seconds = (totalSecs % 60).toInt()
-            val display = "%02d:%02d".format(minutes, seconds)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    "Mise en veille dans $display",
-                    color = Color(0xFFFFB74D),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                TextButton(onClick = onCancel) {
-                    Text("✕ Annuler", color = Color.White.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        } else {
-            // Boutons de préréglages
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(15, 30, 45, 60).forEach { mins ->
-                    FilterChip(
-                        selected = false,
-                        onClick = { onStart(mins) },
-                        label = {
-                            Text("${mins} min",
-                                style = MaterialTheme.typography.labelSmall)
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = Color.White.copy(alpha = 0.08f),
-                            labelColor = Color.White.copy(alpha = 0.65f)
-                        )
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────
-//  SECTION : Dictionnaire de prononciation
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun PronunciationSection(
-    rules: List<PronunciationRule>,
-    onAddClick: () -> Unit,
-    onDelete: (PronunciationRule) -> Unit,
-    onToggle: (PronunciationRule) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Translate, "Prononciation",
-                    tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Dictionnaire de prononciation",
-                    color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.labelLarge)
-            }
-            IconButton(onClick = onAddClick, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.Add, "Ajouter une règle",
-                    tint = Color(0xFFFFB74D), modifier = Modifier.size(20.dp))
-            }
-        }
-
-        Spacer(Modifier.height(4.dp))
-
-        if (rules.isEmpty()) {
-            Text(
-                "Aucune règle. Ajoutez des corrections de prononciation.",
-                color = Color.White.copy(alpha = 0.3f),
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        } else {
-            rules.forEach { rule ->
-                RuleItem(
-                    rule = rule,
-                    onToggle = { onToggle(rule) },
-                    onDelete = { onDelete(rule) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RuleItem(
-    rule: PronunciationRule,
-    onToggle: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = if (rule.isRegex) "/${rule.pattern}/" else rule.pattern,
-                color = if (rule.isActive) Color.White.copy(alpha = 0.8f)
-                        else Color.White.copy(alpha = 0.3f),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "→ ${rule.replacement}",
-                color = Color.White.copy(alpha = 0.35f),
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-        Switch(
-            checked = rule.isActive,
-            onCheckedChange = { onToggle() },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color(0xFFFFB74D),
-                checkedTrackColor = Color(0xFFFFB74D).copy(alpha = 0.4f)
-            ),
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
-        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.Delete, "Supprimer",
-                tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────
-//  DIALOGUE : Ajout de règle de prononciation
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun AddPronunciationRuleDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (pattern: String, replacement: String, isRegex: Boolean) -> Unit
-) {
-    var pattern by remember { mutableStateOf("") }
-    var replacement by remember { mutableStateOf("") }
-    var isRegex by remember { mutableStateOf(false) }
-    var patternError by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF252525),
-        title = {
-            Text("Nouvelle règle",
-                color = Color.White,
-                style = MaterialTheme.typography.titleSmall)
-        },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = pattern,
-                    onValueChange = {
-                        pattern = it
-                        patternError = false
-                    },
-                    label = { Text("Mot ou motif d'origine") },
-                    isError = patternError,
-                    supportingText = if (patternError) {
-                        { Text("Ce champ ne peut pas être vide") }
-                    } else null,
-                    singleLine = true,
-                    colors = darkTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = replacement,
-                    onValueChange = { replacement = it },
-                    label = { Text("Texte de remplacement") },
-                    singleLine = true,
-                    colors = darkTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = isRegex,
-                        onCheckedChange = { isRegex = it },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = Color(0xFFFFB74D),
-                            uncheckedColor = Color.White.copy(alpha = 0.4f)
-                        )
-                    )
-                    Text(
-                        "Expression régulière",
-                        color = Color.White.copy(alpha = 0.6f),
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.clickable { isRegex = !isRegex }
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                if (pattern.isBlank()) {
-                    patternError = true
-                } else {
-                    onConfirm(pattern.trim(), replacement.trim(), isRegex)
-                }
-            }) {
-                Text("Ajouter", color = Color(0xFFFFB74D))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Annuler", color = Color.White.copy(alpha = 0.5f))
-            }
-        }
-    )
-}
-
-@Composable
-private fun darkTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White.copy(alpha = 0.7f),
-    focusedLabelColor = Color(0xFFFFB74D),
-    unfocusedLabelColor = Color.White.copy(alpha = 0.4f),
-    cursorColor = Color(0xFFFFB74D),
-    focusedBorderColor = Color(0xFFFFB74D),
-    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-    errorBorderColor = Color(0xFFFF6B6B),
-    errorLabelColor = Color(0xFFFF6B6B),
-    errorSupportingTextColor = Color(0xFFFF6B6B)
-)
-
-// ─────────────────────────────────────────────────────
-//  BARRE FLOTTANTE DE SURLIGNAGE — Apparaît sur sélection
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun FloatingHighlightToolbar(
-    rect: Rect,
-    onColorSelected: (String) -> Unit,
-    onAddNote: () -> Unit,
     onCopy: () -> Unit,
-    onPronounce: () -> Unit,
-    onDismiss: () -> Unit
+    onHighlight: () -> Unit,
+    onNote: () -> Unit,
+    onBookmark: () -> Unit
 ) {
-    var showColorPicker by remember { mutableStateOf(false) }
-
-    androidx.compose.ui.window.Popup(
-        alignment = Alignment.TopStart,
-        offset = IntOffset(
-            rect.left.toInt().coerceAtLeast(0),
-            (rect.top - 56).toInt().coerceAtLeast(0)
-        ),
-        onDismissRequest = onDismiss
-    ) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF2A2A2A),
-            shadowElevation = 8.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                HIGHLIGHT_COLORS.forEach { (hex, _) ->
-                    val color = try {
-                        Color(android.graphics.Color.parseColor(hex))
-                    } catch (_: Exception) { Color.Yellow }
-                    IconButton(
-                        onClick = { onColorSelected(hex) },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .background(color, CircleShape)
-                        )
-                    }
-                }
-                // Séparateur
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(24.dp)
-                        .background(Color.White.copy(alpha = 0.15f))
-                )
-                // Bouton Note
-                IconButton(onClick = onAddNote, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.Edit, "Note",
-                        tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                // Bouton Copier
-                IconButton(onClick = {
-                    val clipboard = android.content.ClipboardManager::class.java.let { null }
-                    onCopy()
-                }, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.ContentCopy, "Copier",
-                        tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                // Bouton Prononcer (TTS)
-                IconButton(onClick = onPronounce, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.VolumeUp, "Prononcer",
-                        tint = Color(0xFF4FC3F7),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                // Fermer
-                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.Close, "Fermer",
-                        tint = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
+    val panelBg = when {
+        bgColor == Color(0xFF0D0D0D) -> Color(0xFF1A1A1A)
+        bgColor == Color(0xFFF4ECD8) -> Color(0xFFE8DCC8)
+        else -> Color(0xFFEEEEEE)
     }
-}
-
-// ─────────────────────────────────────────────────────
-//  TIROIR DES ANNOTATIONS — ModalBottomSheet
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun AnnotationsDrawer(
-    highlights: List<HighlightEntity>,
-    onHighlightClick: (HighlightEntity) -> Unit,
-    onDeleteHighlight: (HighlightEntity) -> Unit,
-    onUpdateNote: (HighlightEntity, String) -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    var editingNoteFor by remember { mutableStateOf<HighlightEntity?>(null) }
-
-    val filtered = remember(highlights, searchQuery) {
-        if (searchQuery.isBlank()) highlights
-        else highlights.filter {
-            it.selectedText.contains(searchQuery, ignoreCase = true) ||
-            it.note?.contains(searchQuery, ignoreCase = true) == true
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 32.dp)
-    ) {
-        Text("Annotations & Notes",
-            color = Color.White.copy(alpha = 0.85f),
-            style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("Rechercher...", color = Color.White.copy(alpha = 0.3f)) },
-            leadingIcon = {
-                Icon(Icons.Default.Search, "Rechercher",
-                    tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(20.dp))
-            },
-            singleLine = true,
-            colors = darkTextFieldColors(),
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(12.dp))
-
-        if (filtered.isEmpty()) {
-            Text(
-                if (highlights.isEmpty()) "Aucune annotation. Sélectionnez du texte pour le surligner."
-                else "Aucun résultat.",
-                color = Color.White.copy(alpha = 0.3f),
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(vertical = 16.dp)
-            )
-        } else {
-            LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                itemsIndexed(
-                    items = filtered,
-                    key = { _, hl -> hl.id }
-                ) { _, highlight ->
-                    HighlightCard(
-                        highlight = highlight,
-                        onClick = { onHighlightClick(highlight) },
-                        onDelete = { onDeleteHighlight(highlight) },
-                        onEditNote = { editingNoteFor = highlight }
-                    )
-                }
-                item { Spacer(Modifier.height(16.dp)) }
-            }
-        }
-    }
-
-    if (editingNoteFor != null) {
-        var editText by remember(editingNoteFor) { mutableStateOf(editingNoteFor!!.note ?: "") }
-        AlertDialog(
-            onDismissRequest = { editingNoteFor = null },
-            containerColor = Color(0xFF252525),
-            title = { Text("Modifier la note", color = Color.White, style = MaterialTheme.typography.titleSmall) },
-            text = {
-                OutlinedTextField(
-                    value = editText,
-                    onValueChange = { editText = it },
-                    minLines = 3, maxLines = 6,
-                    colors = darkTextFieldColors(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    editingNoteFor?.let { onUpdateNote(it, editText) }
-                    editingNoteFor = null
-                }) { Text("Enregistrer", color = Color(0xFFFFB74D)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingNoteFor = null }) {
-                    Text("Annuler", color = Color.White.copy(alpha = 0.5f))
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun HighlightCard(
-    highlight: HighlightEntity,
-    onClick: () -> Unit,
-    onDelete: () -> Unit,
-    onEditNote: () -> Unit
-) {
-    val color = try {
-        Color(android.graphics.Color.parseColor(highlight.colorHex))
-    } catch (_: Exception) { Color(0xFFFFF59D) }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
-            .clickable { onClick() },
-        color = Color.White.copy(alpha = 0.04f),
-        shape = RoundedCornerShape(10.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
+        shape = RoundedCornerShape(14.dp),
+        color = panelBg,
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.25f))
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.Top
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .height(48.dp)
-                    .background(color, RoundedCornerShape(2.dp))
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    highlight.selectedText,
-                    color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis
-                )
-                if (!highlight.note.isNullOrBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        highlight.note,
-                        color = Color.White.copy(alpha = 0.4f),
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Ch. ${highlight.chapterIndex + 1} · Phrase ${highlight.sentenceIndex + 1}",
-                    color = Color.White.copy(alpha = 0.25f),
-                    style = MaterialTheme.typography.labelSmall
-                )
+            TextButton(onClick = onCopy, modifier = Modifier.weight(1f)) {
+                Text("📋 Copier", color = textColor, fontSize = 13.sp, maxLines = 1)
             }
-            IconButton(onClick = onEditNote, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.Edit, "Note",
-                    tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(16.dp))
+            TextButton(onClick = onHighlight, modifier = Modifier.weight(1f)) {
+                Text("🖍️ Surligner", color = accentColor, fontSize = 13.sp, maxLines = 1)
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.Delete, "Supprimer",
-                    tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(16.dp))
+            TextButton(onClick = onNote, modifier = Modifier.weight(1f)) {
+                Text("📝 Note", color = textColor, fontSize = 13.sp, maxLines = 1)
+            }
+            TextButton(onClick = onBookmark, modifier = Modifier.weight(1f)) {
+                Text("🔖 Marque-page", color = accentColor, fontSize = 13.sp, maxLines = 1,
+                    fontWeight = FontWeight.Medium)
             }
         }
     }
-}
-
-// ─────────────────────────────────────────────────────
-//  DIALOGUE : Édition de note
-// ─────────────────────────────────────────────────────
-
-@Composable
-private fun NoteEditDialog(
-    currentNote: String,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit
-) {
-    var text by remember { mutableStateOf(currentNote) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF252525),
-        title = {
-            Text("Note de lecture",
-                color = Color.White,
-                style = MaterialTheme.typography.titleSmall)
-        },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text("Votre commentaire...", color = Color.White.copy(alpha = 0.3f)) },
-                minLines = 3,
-                maxLines = 6,
-                colors = darkTextFieldColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(text) }) {
-                Text("Enregistrer", color = Color(0xFFFFB74D))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Annuler", color = Color.White.copy(alpha = 0.5f))
-            }
-        }
-    )
 }
 
 // ─────────────────────────────────────────────────────
@@ -1495,5 +418,3 @@ private fun ErrorMessage(msg: String) {
             modifier = Modifier.padding(24.dp))
     }
 }
-
-

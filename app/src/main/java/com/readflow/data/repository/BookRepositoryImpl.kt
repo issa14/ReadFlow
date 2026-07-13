@@ -41,6 +41,23 @@ class BookRepositoryImpl @Inject constructor(
     private val chunkText: ChunkTextUseCase
 ) : BookRepository {
 
+    companion object {
+        // Patterns HTML compilés une seule fois
+        private val BODY_PATTERN = java.util.regex.Pattern.compile(
+            "<body[^>]*>(.*?)</body>",
+            java.util.regex.Pattern.DOTALL or java.util.regex.Pattern.CASE_INSENSITIVE
+        )
+        private val STYLE_PATTERN = Regex("<style[^>]*>.*?</style>",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        private val SCRIPT_PATTERN = Regex("<script[^>]*>.*?</script>",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        private val HEAD_PATTERN = Regex("<head[^>]*>.*?</head>",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        private val CR_TAB_PATTERN = Regex("[\\r\\t]")
+        private val DOUBLE_SPACES_PATTERN = Regex(" {2,}")
+        private val TRIPLE_NEWLINE_PATTERN = Regex("\\n{3,}")
+    }
+
     private val httpClient = DefaultHttpClient(
         userAgent = "ReadFlow/0.1.0",
         connectTimeout = INFINITE,
@@ -49,35 +66,95 @@ class BookRepositoryImpl @Inject constructor(
     private val retriever: AssetRetriever get() = AssetRetriever(context.contentResolver, httpClient)
     private val opener = PublicationOpener(EpubParser(), emptyList()) {}
 
-    override suspend fun importEpub(inputStream: InputStream, fileName: String): Book =
+    override suspend fun importEpub(
+        inputStream: InputStream,
+        fileName: String,
+        onProgress: (progress: Float, status: String) -> Unit
+    ): Book =
         withContext(Dispatchers.IO) {
+            onProgress(0.05f, "Copie du fichier EPUB...")
             val bookId = UUID.randomUUID().toString()
             val epubDir = File(context.filesDir, "epubs/$bookId")
             epubDir.mkdirs()
             val epubFile = File(epubDir, fileName)
             epubFile.outputStream().use { inputStream.copyTo(it) }
 
+            onProgress(0.12f, "Analyse de la structure de l'EPUB...")
             val publication = openPublication(epubFile)
 
+            onProgress(0.20f, "Lecture des métadonnées...")
             val title = publication.metadata.localizedTitle?.string
                 ?.takeIf { it.isNotBlank() } ?: fileName.removeSuffix(".epub")
             val author = publication.metadata.authors.joinToString(", ") { it.name }
                 .takeIf { it.isNotBlank() } ?: "Auteur inconnu"
 
-            // Extraction couverture (TODO: Readium 3.0 coverLink deprecated, adapter)
-            val coverPath: String? = null
+            // Extraction de la couverture de l'EPUB de manière robuste via l'archive ZIP
+            var coverPath: String? = null
+            try {
+                ZipFile(epubFile).use { zip ->
+                    val entry = zip.entries().asSequence()
+                        .filter { !it.isDirectory }
+                        .find { entry ->
+                            val name = entry.name.lowercase()
+                            (name.contains("cover") || name.contains("couverture") || name.contains("folder")) &&
+                                    (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png"))
+                        }
+                    if (entry != null) {
+                        val coverFile = File(epubDir, "cover.jpg")
+                        zip.getInputStream(entry).use { input ->
+                            coverFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        coverPath = coverFile.absolutePath
+                        Log.d("BookRepo", "Couverture extraite avec succès de l'archive ZIP : $coverPath")
+                    } else {
+                        Log.w("BookRepo", "Aucune couverture trouvée dans le fichier ZIP.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("BookRepo", "Erreur lors de l'extraction de la couverture du ZIP", e)
+            }
 
+            val totalChapters = publication.readingOrder.size
             val book = Book(
                 id = bookId,
                 title = title,
                 author = author,
                 description = publication.metadata.description,
                 coverPath = coverPath,
-                totalChapters = publication.readingOrder.size,
+                totalChapters = totalChapters,
                 language = publication.metadata.languages.firstOrNull() ?: "fr",
                 addedAt = System.currentTimeMillis()
             )
+            
+            onProgress(0.25f, "Enregistrement du livre...")
             bookDao.insert(book.toEntity(epubFile.absolutePath, coverPath))
+
+            // Pré-chargement et segmentation de tous les chapitres pour un rendu instantané
+            val startCacheProgress = 0.25f
+            val endCacheProgress = 1.00f
+            val range = endCacheProgress - startCacheProgress
+
+            for (i in 0 until totalChapters) {
+                val progressFraction = startCacheProgress + range * (i.toFloat() / totalChapters)
+                val displayIndex = i + 1
+                onProgress(progressFraction, "Optimisation du chapitre $displayIndex sur $totalChapters...")
+
+                try {
+                    val link = publication.readingOrder[i]
+                    val text = extractHtml(epubFile, link.href.toString())
+                    // Segmente et stocke directement en cache Room via ChunkTextUseCase
+                    chunkText(bookId, i, text)
+                    // Stocke aussi le titre du chapitre pour éviter de rouvrir l'EPUB plus tard
+                    val chapterTitle = link.title?.takeIf { it.isNotBlank() } ?: "Chapitre ${i + 1}"
+                    sentenceCacheDao.updateChapterTitle(bookId, i, chapterTitle)
+                } catch (e: Exception) {
+                    Log.e("BookRepo", "Erreur lors de la pré-segmentation du chapitre $i", e)
+                }
+            }
+
+            onProgress(1.00f, "Livre optimisé et prêt !")
             book
         }
 
@@ -92,12 +169,12 @@ class BookRepositoryImpl @Inject constructor(
             val cachedSentences = sentenceCacheDao.getSentences(bookId, chapterIndex)
             if (cachedSentences.isNotEmpty()) {
                 Log.d("BookRepo", "Cache HIT — bookId=$bookId ch=$chapterIndex (${cachedSentences.size} phrases)")
-                val publication = openPublication(epubFile)
-                val link = publication.readingOrder.getOrNull(chapterIndex)
-                    ?: throw IllegalStateException("Chapitre $chapterIndex introuvable")
+                // Titre du chapitre stocké dans le cache — pas besoin de rouvrir l'EPUB
+                val chapterTitle = cachedSentences.first().chapterTitle
+                    .takeIf { it.isNotBlank() } ?: "Chapitre ${chapterIndex + 1}"
                 return@withContext Chapter(
                     index = chapterIndex,
-                    title = link.title?.takeIf { it.isNotBlank() } ?: "Chapitre ${chapterIndex + 1}",
+                    title = chapterTitle,
                     sentences = cachedSentences.map { entity ->
                         Sentence(
                             index = entity.sentenceIndex,
@@ -190,15 +267,23 @@ class BookRepositoryImpl @Inject constructor(
     private fun stripHtml(html: String): String {
         if (html.isEmpty()) return ""
 
-        // 1. Décode toutes les entités HTML (&#8217; -> ', &rsquo; -> ', etc.)
-        // et extrait le texte brut en éliminant les balises structurelles
-        val decodedText = Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY).toString()
+        var processedHtml = html
+        val bodyMatcher = BODY_PATTERN.matcher(html)
+        if (bodyMatcher.find()) {
+            processedHtml = bodyMatcher.group(1) ?: html
+        } else {
+            processedHtml = processedHtml.replace(HEAD_PATTERN, "")
+        }
 
-        // 2. Nettoyage de la mise en forme sans détruire les sauts de ligne (\n)
+        processedHtml = processedHtml.replace(STYLE_PATTERN, "")
+        processedHtml = processedHtml.replace(SCRIPT_PATTERN, "")
+
+        val decodedText = Html.fromHtml(processedHtml, Html.FROM_HTML_MODE_LEGACY).toString()
+
         return decodedText
-            .replace(Regex("[\\r\\t]"), "")        // Supprime les retours chariot et tabulations parasites
-            .replace(Regex(" {2,}"), " ")          // Fusionne les espaces doubles ou plus en un seul espace
-            .replace(Regex("\\n{3,}"), "\n\n")     // Limite les sauts de ligne consécutifs à 2 maximum
+            .replace(CR_TAB_PATTERN, "")
+            .replace(DOUBLE_SPACES_PATTERN, " ")
+            .replace(TRIPLE_NEWLINE_PATTERN, "\n\n")
             .trim()
     }
 }

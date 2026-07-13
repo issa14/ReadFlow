@@ -3,14 +3,12 @@ package com.readflow.ui.screen.library
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.readflow.data.repository.RecentBooksRepository
-import com.readflow.data.database.BookProgressDao
-import com.readflow.data.database.entity.RecentBookEntity
 import com.readflow.domain.model.Book
 import com.readflow.domain.repository.BookRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +22,7 @@ import javax.inject.Inject
 data class LibraryUiState(
     val allBooks: List<Book> = emptyList(),
     val books: List<Book> = emptyList(),
+    val bookProgress: Map<String, Float> = emptyMap(),
     val isLoading: Boolean = true,
     val error: String? = null,
     val searchQuery: String = "",
@@ -34,8 +33,8 @@ data class LibraryUiState(
     val isFilterDialogVisible: Boolean = false,
     val currentDestination: NavigationDestination = NavigationDestination.LIBRARY,
     val isDarkTheme: Boolean = true,
-    val recentBooks: List<RecentBookEntity> = emptyList(),
-    val bookProgress: Map<String, Int> = emptyMap()
+    val importProgress: Float? = null,
+    val importStatus: String? = null
 )
 
 enum class FilterMode { ALL, BY_AUTHOR, BY_TITLE, IN_PROGRESS, READ, UNREAD }
@@ -61,36 +60,30 @@ enum class NavigationDestination(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val bookRepository: BookRepository,
-    private val recentBooksRepo: RecentBooksRepository,
-    private val bookProgressDao: BookProgressDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
-    init {
-        loadBooks()
-        viewModelScope.launch {
-            recentBooksRepo.recentBooks.collect { recents ->
-                _uiState.update { it.copy(recentBooks = recents) }
-            }
-        }
-        // Observer les progressions unifiées (SSOT) → badges réactifs
-        viewModelScope.launch {
-            bookProgressDao.getAllProgress().collect { list ->
-                val map = list.associate { it.bookId to (it.globalProgressFraction * 100).toInt() }
-                _uiState.update { it.copy(bookProgress = map) }
-            }
-        }
-    }
+    init { loadBooks() }
 
     private fun loadBooks() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val books = bookRepository.getAllBooks()
-                _uiState.update { it.copy(allBooks = books, isLoading = false) }
+                val progressMap = mutableMapOf<String, Float>()
+                books.forEach { book ->
+                    try {
+                        val progress = bookRepository.getProgress(book.id)
+                        progressMap[book.id] = progress?.totalProgressFraction ?: 0f
+                    } catch (e: Exception) {
+                        Log.e("LibraryVM", "Error loading progress for book ${book.id}", e)
+                        progressMap[book.id] = 0f
+                    }
+                }
+                _uiState.update { it.copy(allBooks = books, bookProgress = progressMap, isLoading = false) }
                 applyFilters()
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
@@ -129,74 +122,58 @@ class LibraryViewModel @Inject constructor(
         _uiState.update { it.copy(currentDestination = dest) }
     }
 
-    /**
-     * Enregistre l'ouverture d'un livre dans l'historique des récents.
-     * Appelé depuis [LibraryScreen] quand l'utilisateur ouvre un livre.
-     */
-    fun recordBookOpen(book: Book) {
-        viewModelScope.launch {
-            try {
-                recentBooksRepo.openBook(
-                    RecentBookEntity(
-                        bookId = book.id,
-                        title = book.title,
-                        author = book.author,
-                        coverPath = book.coverPath ?: ""
-                    )
-                )
-            } catch (e: Exception) {
-                // Non-bloquant : un échec d'enregistrement n'empêche pas la lecture
-            }
-        }
-    }
-
     fun toggleTheme() {
         _uiState.update { it.copy(isDarkTheme = !it.isDarkTheme) }
     }
 
     private fun applyFilters() {
         val s = _uiState.value
-        var filtered = s.allBooks
+        val progressMap = s.bookProgress
 
-        // Filtre texte
-        if (s.searchQuery.isNotBlank()) {
-            val q = s.searchQuery.lowercase()
-            filtered = filtered.filter {
-                it.title.lowercase().contains(q) || it.author.lowercase().contains(q)
+        val filtered = s.allBooks.asSequence()
+            .filter { book ->
+                s.searchQuery.isBlank() ||
+                book.title.contains(s.searchQuery, ignoreCase = true) ||
+                book.author.contains(s.searchQuery, ignoreCase = true)
             }
-        }
-
-        // Tri
-        filtered = when (s.sortOrder) {
-            SortOrder.TITLE -> filtered.sortedBy { it.title.lowercase() }
-            SortOrder.AUTHOR -> filtered.sortedBy { it.author.lowercase() }
-            SortOrder.DATE -> filtered.sortedByDescending { it.addedAt }
-            SortOrder.FOLDERS -> filtered  // TODO
-            SortOrder.RECENT -> filtered.sortedByDescending { it.addedAt }
-        }
-
-        // Filtre type (TODO: progression réelle depuis Room)
-        filtered = when (s.filterType) {
-            FilterType.ALL -> filtered
-            FilterType.UNREAD -> filtered
-            FilterType.IN_PROGRESS -> filtered
-            FilterType.READ -> emptyList()
-        }
+            .let { seq ->
+                when (s.sortOrder) {
+                    SortOrder.TITLE -> seq.sortedBy { it.title.lowercase() }
+                    SortOrder.AUTHOR -> seq.sortedBy { it.author.lowercase() }
+                    SortOrder.DATE, SortOrder.RECENT -> seq.sortedByDescending { it.addedAt }
+                    SortOrder.FOLDERS -> seq
+                }
+            }
+            .filter { book ->
+                when (s.filterType) {
+                    FilterType.ALL -> true
+                    FilterType.UNREAD -> (progressMap[book.id] ?: 0f) <= 0.01f
+                    FilterType.IN_PROGRESS -> {
+                        val p = progressMap[book.id] ?: 0f
+                        p > 0.01f && p < 0.99f
+                    }
+                    FilterType.READ -> (progressMap[book.id] ?: 0f) >= 0.99f
+                }
+            }
+            .toList()
 
         _uiState.update { it.copy(books = filtered) }
     }
 
     fun importEpub(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, importProgress = 0f, importStatus = "Préparation de l'import...") }
             try {
                 val fileName = resolveFileName(uri) ?: "inconnu.epub"
                 context.contentResolver.openInputStream(uri)?.use { stream ->
-                    bookRepository.importEpub(stream, fileName)
+                    bookRepository.importEpub(stream, fileName) { progress, status ->
+                        _uiState.update { it.copy(importProgress = progress, importStatus = status) }
+                    }
                 } ?: throw IllegalStateException("Impossible de lire le fichier")
+                _uiState.update { it.copy(importProgress = null, importStatus = null) }
                 loadBooks()
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = e.message, isLoading = false) }
+                _uiState.update { it.copy(error = e.message, isLoading = false, importProgress = null, importStatus = null) }
             }
         }
     }
@@ -204,12 +181,15 @@ class LibraryViewModel @Inject constructor(
     /** Import depuis un fichier local (explorateur FilesScreen). */
     fun importFile(inputStream: java.io.InputStream, fileName: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, importProgress = 0f, importStatus = "Préparation de l'import...") }
             try {
-                bookRepository.importEpub(inputStream, fileName)
+                bookRepository.importEpub(inputStream, fileName) { progress, status ->
+                    _uiState.update { it.copy(importProgress = progress, importStatus = status) }
+                }
+                _uiState.update { it.copy(importProgress = null, importStatus = null) }
                 loadBooks()
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = e.message, isLoading = false) }
+                _uiState.update { it.copy(error = e.message, isLoading = false, importProgress = null, importStatus = null) }
             }
         }
     }
@@ -217,18 +197,30 @@ class LibraryViewModel @Inject constructor(
     /** Import par lot depuis des URIs (multi-sélection SAF). */
     fun importBooks(uris: List<Uri>) {
         viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, importProgress = 0f, importStatus = "Préparation de l'import...") }
             try {
-                uris.forEach { uri ->
+                val total = uris.size
+                uris.forEachIndexed { index, uri ->
                     val fileName = resolveFileName(uri) ?: "inconnu.epub"
                     context.contentResolver.openInputStream(uri)?.use { stream ->
-                        bookRepository.importEpub(stream, fileName)
+                        bookRepository.importEpub(stream, fileName) { progress, status ->
+                            val batchProgress = (index.toFloat() + progress) / total
+                            _uiState.update {
+                                it.copy(
+                                    importProgress = batchProgress,
+                                    importStatus = "[Livre ${index + 1}/$total] $status"
+                                )
+                            }
+                        }
                     }
                 }
-                withContext(Dispatchers.Main) { loadBooks() }
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(importProgress = null, importStatus = null) }
+                    loadBooks()
+                }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    _uiState.update { it.copy(error = e.message, isLoading = false) }
+                    _uiState.update { it.copy(error = e.message, isLoading = false, importProgress = null, importStatus = null) }
                 }
             }
         }

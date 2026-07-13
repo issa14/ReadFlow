@@ -8,6 +8,10 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.readflow.domain.model.SynthesisResult
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,20 +31,73 @@ class OnnxInferenceService @Inject constructor(
         private const val ASSET_DIR = "models/vits-piper-fr_FR-miro-high"
         private const val ONNX_FILE  = "fr_FR-miro-high.onnx"
         private const val TOKENS_TXT = "tokens.txt"
+
+        // Patterns compilés une seule fois (thread-safe, immuables)
+        // Évite la compilation coûteuse de Regex à chaque appel synthesize()
+        private val MULTIPLE_PUNCT_SPACES = Regex("([.!?])\\s+\\1\\s+\\1")
+        private val REPEATED_PUNCT = Regex("([.!?])\\1{2,}")
+        private val MULTIPLE_SPACES = Regex("\\s+")
     }
 
     @Volatile private var tts: OfflineTts? = null
+
+    /** true lorsque le modèle ONNX est chargé et prêt pour l'inférence. */
+    @Volatile var isInitialized: Boolean = false
+        private set
+
+    /** true pendant l'initialisation (évite les double-init concurrents). */
+    @Volatile private var isInitializing: Boolean = false
+
+    /** Mutex pour sérialiser l'initialisation. */
+    private val initMutex = Mutex()
 
     /** Piper VITS : modèle mono-locuteur français. */
     enum class Voice(val sid: Int, val label: String) {
         MIRO(0, "Miro (FR high)"),
     }
 
+    // ── Paramètres prosodiques ajustables ──────────────────────
+
+    /**
+     * Rythme de la voix (1.0 = normal, > 1.0 ralentit).
+     * Pour Miro, 1.08 est recommandé pour un débit naturel en français.
+     */
+    @Volatile var voiceLengthScale: Float = 1.08f
+
+    /** Variabilité prosodique (0.0–1.0). Défaut Piper VITS : 0.667. */
+    @Volatile var voiceNoiseScale: Float = 0.667f
+
+    /** Variabilité prosodique conditionnée. Défaut Piper VITS : 0.8. */
+    @Volatile var voiceNoiseScaleW: Float = 0.8f
+
     // ── API publique ───────────────────────────────────────────────
 
-    fun initialize() {
-        if (tts != null) return
+    /**
+     * Initialise le modèle ONNX en arrière-plan ([Dispatchers.IO]).
+     *
+     * Idempotente : si déjà initialisé, retourne immédiatement.
+     * Thread-safe via [Mutex] : le fast-path hors-mutex évite toute
+     * attente inutile après la première initialisation.
+     */
+    suspend fun initialize() {
+        // Fast-path sans mutex : si déjà prêt, on ne bloque personne
+        if (isInitialized) return
+        initMutex.withLock {
+            // Double-check sous le mutex
+            if (isInitialized || isInitializing) return
+            isInitializing = true
+            try {
+                withContext(Dispatchers.IO) {
+                    doInitialize()
+                }
+                isInitialized = true
+            } finally {
+                isInitializing = false
+            }
+        }
+    }
 
+    private fun doInitialize() {
         try {
             // 1. Vérification d'intégrité du modèle ONNX
             if (!isModelAvailable()) {
@@ -66,9 +123,9 @@ class OnnxInferenceService @Inject constructor(
                 dataDir  = dataDir,
                 lexicon  = "",
                 dictDir  = "",
-                noiseScale  = 0.667f,
-                noiseScaleW = 0.8f,
-                lengthScale = 1.0f
+                noiseScale  = voiceNoiseScale,
+                noiseScaleW = voiceNoiseScaleW,
+                lengthScale = voiceLengthScale
             )
 
             val modelConfig = OfflineTtsModelConfig().apply {
@@ -89,21 +146,26 @@ class OnnxInferenceService @Inject constructor(
         }
     }
 
-    fun synthesize(
+    /**
+     * Synthétise un texte en audio PCM sur [Dispatchers.IO].
+     *
+     * @throws IllegalStateException si le modèle n'est pas initialisé.
+     */
+    suspend fun synthesize(
         text: String,
         voice: Voice = Voice.MIRO,
         speed: Float = 1.0f
-    ): SynthesisResult {
+    ): SynthesisResult = withContext(Dispatchers.IO) {
         val engine = tts
-            ?: throw IllegalStateException("TTS non initialisé.")
+            ?: throw IllegalStateException("TTS non initialisé. Appeler initialize() d'abord.")
 
         val cleaned = text
             .trim()
-            .replace(Regex("([.!?])\\s+\\1\\s+\\1"), "$1$1$1") // "! ! !" → "!!!"
-            .replace(Regex("([.!?])\\1{2,}"), "$1")              // "......" → "."
-            .replace("\u200B", "")                                // zero-width space
-            .replace("\u00a0", " ")                               // non-breaking space → espace
-            .replace(Regex("\\s+"), " ")                          // normalise espaces
+            .replace(MULTIPLE_PUNCT_SPACES, "$1$1$1")
+            .replace(REPEATED_PUNCT, "$1")
+            .replace("\u200B", "")
+            .replace("\u00a0", " ")
+            .replace(MULTIPLE_SPACES, " ")
         Log.d(TAG, "synth: \"$cleaned\"")
         val startMs = System.currentTimeMillis()
         val audio = engine.generate(cleaned, voice.sid, speed.coerceIn(0.5f, 2.0f))
@@ -113,11 +175,28 @@ class OnnxInferenceService @Inject constructor(
 
         Log.i(TAG, "\"${cleaned.take(60)}\" → ${audio.samples.size} éch., " +
                 "${durationMs}ms, RTF=%.2f".format(rtf))
-        return SynthesisResult(audio.samples, audio.sampleRate, cleaned,
+        SynthesisResult(audio.samples, audio.sampleRate, cleaned,
             voice.label, elapsedMs, durationMs)
     }
 
-    fun release() { tts?.release(); tts = null }
+    /**
+     * Libère le modèle ONNX et les ressources natives.
+     *
+     * Appelée par [AudioPlaybackService.onDestroy] lors de la destruction
+     * du service (pas à chaque pause de lecture). Le modèle devra être
+     * ré-initialisé via [initialize] avant la prochaine utilisation.
+     */
+    fun release() {
+        Log.i(TAG, "Libération du modèle ONNX...")
+        try {
+            tts?.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Erreur libération TTS: ${e.message}", e)
+        }
+        tts = null
+        isInitialized = false
+        Log.i(TAG, "Modèle ONNX libéré")
+    }
 
     fun getSampleRate(): Int = tts?.sampleRate() ?: 22050
 
@@ -125,6 +204,19 @@ class OnnxInferenceService @Inject constructor(
         return try {
             context.assets.open("$ASSET_DIR/$ONNX_FILE").use { true }
         } catch (_: Exception) { false }
+    }
+
+    /**
+     * Ajuste les paramètres prosodiques VITS.
+     * Les valeurs prennent effet après ré-initialisation du modèle
+     * (appeler [release] puis [initialize] pour appliquer).
+     */
+    fun setVoiceParams(lengthScale: Float, noiseScale: Float, noiseScaleW: Float) {
+        voiceLengthScale = lengthScale.coerceIn(0.5f, 2.0f)
+        voiceNoiseScale  = noiseScale.coerceIn(0.1f, 1.5f)
+        voiceNoiseScaleW = noiseScaleW.coerceIn(0.1f, 1.5f)
+        Log.i(TAG, "Voice params updated: ls=%.2f ns=%.2f nsw=%.2f"
+            .format(voiceLengthScale, voiceNoiseScale, voiceNoiseScaleW))
     }
 
     // ── Private ───────────────────────────────────────────────────

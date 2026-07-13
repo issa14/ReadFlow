@@ -27,5 +27,6 @@ data class SentenceCacheEntity(
     val sentenceIndex: Int,
     val text: String,
     val startOffset: Int,
-    val endOffset: Int
+    val endOffset: Int,
+    val chapterTitle: String = ""
 )
