@@ -65,7 +65,26 @@ class PlaybackOrchestrator @Inject constructor(
     companion object {
         private const val TAG = "Orchestrator"
         private const val LOOKAHEAD = 3
-        private const val INTER_SENTENCE_SILENCE_MS = 300
+
+        // ── Durées de silence dynamiques selon la ponctuation ──
+        private const val SILENCE_COMMA_MS     = 150   // virgule, point-virgule
+        private const val SILENCE_SENTENCE_MS  = 650   // point, exclamation, interrogation
+        private const val SILENCE_PARAGRAPH_MS = 1000  // saut de ligne / fin de paragraphe
+
+        /**
+         * Détermine la durée du silence à injecter après un segment,
+         * en fonction de son dernier caractère de ponctuation.
+         */
+        private fun silenceDurationFor(text: String): Int {
+            val trimmed = text.trimEnd()
+            if (trimmed.isEmpty()) return SILENCE_SENTENCE_MS
+            return when (trimmed.last()) {
+                ',', ';'  -> SILENCE_COMMA_MS
+                '.', '!', '?', '\u2026' -> SILENCE_SENTENCE_MS
+                '\n'      -> SILENCE_PARAGRAPH_MS
+                else      -> SILENCE_SENTENCE_MS
+            }
+        }
     }
 
     sealed class State {
@@ -409,7 +428,8 @@ class PlaybackOrchestrator @Inject constructor(
             if (currentJob?.isActive != true || (_state.value != State.Playing && _state.value != State.Loading)) break
 
             player.enqueue(result.samples)
-            val silenceLen = (result.sampleRate * INTER_SENTENCE_SILENCE_MS / 1000)
+            val silenceMs = silenceDurationFor(result.text)
+            val silenceLen = (result.sampleRate * silenceMs / 1000)
                 .coerceAtMost(GaplessAudioPlayer.SILENCE_BUFFER.size)
             player.enqueue(GaplessAudioPlayer.SILENCE_BUFFER.copyOf(silenceLen))
 

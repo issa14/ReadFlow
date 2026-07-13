@@ -56,6 +56,20 @@ class OnnxInferenceService @Inject constructor(
         MIRO(0, "Miro (FR high)"),
     }
 
+    // ── Paramètres prosodiques ajustables ──────────────────────
+
+    /**
+     * Rythme de la voix (1.0 = normal, > 1.0 ralentit).
+     * Pour Miro, 1.08 est recommandé pour un débit naturel en français.
+     */
+    @Volatile var voiceLengthScale: Float = 1.08f
+
+    /** Variabilité prosodique (0.0–1.0). Défaut Piper VITS : 0.667. */
+    @Volatile var voiceNoiseScale: Float = 0.667f
+
+    /** Variabilité prosodique conditionnée. Défaut Piper VITS : 0.8. */
+    @Volatile var voiceNoiseScaleW: Float = 0.8f
+
     // ── API publique ───────────────────────────────────────────────
 
     /**
@@ -109,9 +123,9 @@ class OnnxInferenceService @Inject constructor(
                 dataDir  = dataDir,
                 lexicon  = "",
                 dictDir  = "",
-                noiseScale  = 0.667f,
-                noiseScaleW = 0.8f,
-                lengthScale = 1.0f
+                noiseScale  = voiceNoiseScale,
+                noiseScaleW = voiceNoiseScaleW,
+                lengthScale = voiceLengthScale
             )
 
             val modelConfig = OfflineTtsModelConfig().apply {
@@ -190,6 +204,19 @@ class OnnxInferenceService @Inject constructor(
         return try {
             context.assets.open("$ASSET_DIR/$ONNX_FILE").use { true }
         } catch (_: Exception) { false }
+    }
+
+    /**
+     * Ajuste les paramètres prosodiques VITS.
+     * Les valeurs prennent effet après ré-initialisation du modèle
+     * (appeler [release] puis [initialize] pour appliquer).
+     */
+    fun setVoiceParams(lengthScale: Float, noiseScale: Float, noiseScaleW: Float) {
+        voiceLengthScale = lengthScale.coerceIn(0.5f, 2.0f)
+        voiceNoiseScale  = noiseScale.coerceIn(0.1f, 1.5f)
+        voiceNoiseScaleW = noiseScaleW.coerceIn(0.1f, 1.5f)
+        Log.i(TAG, "Voice params updated: ls=%.2f ns=%.2f nsw=%.2f"
+            .format(voiceLengthScale, voiceNoiseScale, voiceNoiseScaleW))
     }
 
     // ── Private ───────────────────────────────────────────────────

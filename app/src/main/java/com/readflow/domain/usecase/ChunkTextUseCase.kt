@@ -42,8 +42,13 @@ class ChunkTextUseCase @Inject constructor(
 
     companion object {
         private const val TAG = "ChunkText"
-        /** Longueur maximale d'une phrase avant sous-découpage. */
-        private const val MAX_SENTENCE_LENGTH = 500
+        /**
+         * Longueur maximale d'une phrase avant sous-découpage.
+         * Portée à 1200 pour laisser le TTS natif gérer les pauses
+         * internes (virgules, incises). Seules les phrases très longues
+         * sont sous-découpées, et uniquement sur `;` et `:`.
+         */
+        private const val MAX_SENTENCE_LENGTH = 1200
     }
 
     // ── API avec cache (utilisée par BookRepository) ──
@@ -123,11 +128,10 @@ class ChunkTextUseCase @Inject constructor(
     }
 
     /**
-     * Sous-découpe une phrase trop longue sur les virgules et points-virgules.
-     *
-     * Implémentation manuelle sans Regex (split caractère par caractère)
-     * pour éviter les allocations de `List<String>` intermédiaires
-     * générées par `Regex.split()`.
+     * Sous-découpe une phrase excessivement longue (> 1200 car.)
+     * UNIQUEMENT sur les points-virgules et deux-points,
+     * PAS sur les virgules simples, pour préserver l'intonation
+     * naturelle que le TTS natif applique aux pauses internes.
      */
     private fun subdivideLongSentence(
         sentence: Sentence,
@@ -140,8 +144,8 @@ class ChunkTextUseCase @Inject constructor(
 
         for (i in text.indices) {
             val c = text[i]
-            // Découpe sur virgule, point-virgule, ou deux-points suivis d'espace
-            val isSplitPoint = c == ',' || c == ';' || c == ':'
+            // Découpe UNIQUEMENT sur ; et : suivis d'espace (fins de propositions)
+            val isSplitPoint = c == ';' || c == ':'
             if (isSplitPoint && i + 1 < text.length && text[i + 1].isWhitespace()) {
                 val segment = text.substring(segmentStart, i + 1).trim()
                 if (segment.isNotEmpty()) {
@@ -156,7 +160,6 @@ class ChunkTextUseCase @Inject constructor(
             }
         }
 
-        // Dernier segment
         val last = text.substring(segmentStart).trim()
         if (last.isNotEmpty()) {
             result.add(Sentence(
