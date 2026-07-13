@@ -10,7 +10,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.readflow.data.settings.AppTheme
 import com.readflow.ui.screen.settings.SettingsViewModel
 
-private val DarkColors = darkColorScheme(
+private val DarkColors by lazy {
+    darkColorScheme(
     primary = DarkPrimary,
     onPrimary = DarkOnPrimary,
     primaryContainer = DarkPrimaryContainer,
@@ -26,9 +27,11 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
     error = DarkError,
-)
+    )
+}
 
-private val LightColors = lightColorScheme(
+private val LightColors by lazy {
+    lightColorScheme(
     primary = LightPrimary,
     onPrimary = LightOnPrimary,
     secondary = DarkSecondary,
@@ -38,7 +41,8 @@ private val LightColors = lightColorScheme(
     surface = LightSurface,
     onSurface = LightOnSurface,
     error = DarkError,
-)
+    )
+}
 
 @Composable
 fun ReadFlowTheme(

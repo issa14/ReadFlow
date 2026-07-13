@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.readflow.data.settings.AppTheme
 import com.readflow.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -28,12 +29,12 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch { repository.voice.collect { _uiState.update { s -> s.copy(voice = it) } } }
-        viewModelScope.launch { repository.speed.collect { _uiState.update { s -> s.copy(speed = it) } } }
-        viewModelScope.launch { repository.gain.collect { _uiState.update { s -> s.copy(gain = it) } } }
-        viewModelScope.launch { repository.theme.collect { _uiState.update { s -> s.copy(theme = it) } } }
-        viewModelScope.launch { repository.dynamicColors.collect { _uiState.update { s -> s.copy(dynamicColors = it) } } }
-        viewModelScope.launch { repository.modelPath.collect { _uiState.update { s -> s.copy(modelPath = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.voice.collect { _uiState.update { s -> s.copy(voice = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.speed.collect { _uiState.update { s -> s.copy(speed = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.gain.collect { _uiState.update { s -> s.copy(gain = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.theme.collect { _uiState.update { s -> s.copy(theme = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.dynamicColors.collect { _uiState.update { s -> s.copy(dynamicColors = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.modelPath.collect { _uiState.update { s -> s.copy(modelPath = it) } } }
     }
 
     fun setVoice(voice: String) { viewModelScope.launch { repository.setVoice(voice) } }

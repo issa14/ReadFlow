@@ -69,7 +69,7 @@ class LibraryViewModel @Inject constructor(
     init { loadBooks() }
 
     private fun loadBooks() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val books = bookRepository.getAllBooks()

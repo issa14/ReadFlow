@@ -2,6 +2,7 @@ package com.readflow.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import com.readflow.data.database.AnnotationDao
 import com.readflow.data.database.BookDao
 import com.readflow.data.database.BookProgressDao
@@ -44,6 +45,7 @@ object AppModule {
             ReadFlowDatabase::class.java,
             "readflow.db"
         ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+         .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
          .fallbackToDestructiveMigration()
          .build()
     }
