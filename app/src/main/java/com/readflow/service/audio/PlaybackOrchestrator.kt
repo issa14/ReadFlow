@@ -224,179 +224,30 @@ class PlaybackOrchestrator @Inject constructor(
         if (sentences.isEmpty()) return
         stop()
 
-        // Demander le focus audio — ne pas lancer sans accord
-        val focusGranted = audioFocusManager.requestFocus()
-        if (!focusGranted) {
-            Log.w(TAG, "Focus audio refusé, lecture annulée")
-            _state.value = State.Error("Focus audio non disponible")
-            return
-        }
-
-        player.sampleRate = onnxService.getSampleRate()
-
-        currentBookTitle = bookTitle
-        currentChapterTitle = chapterTitle
-        currentVoice = voice
-        currentSpeed = speed
-        currentBookId = bookId
-        currentChapterIdx = chapterIndex
-        currentSentenceIdx.set(startFrom)
-        currentTotalSentences = sentences.size
-        currentSentences = sentences
+        if (!requestAudioFocus()) return
+        initPlaybackParams(sentences, voice, speed, startFrom, bookTitle, chapterTitle, bookId, chapterIndex)
 
         val total = sentences.size
-        sentenceDurations = LongArray(total)
         _progress.value = Progress(startFrom, total, sentences.getOrNull(startFrom))
         _state.value = State.Loading
         wasPausedByFocusLoss = false
-
-        updatePlaybackState(
-            index = startFrom,
-            text = sentences.getOrNull(startFrom)?.text ?: "",
-            total = total,
-            status = PlaybackStatus.BUFFERING
-        )
+        updatePlaybackState(startFrom, sentences.getOrNull(startFrom)?.text ?: "", total, PlaybackStatus.BUFFERING)
 
         val myGeneration = playGeneration.incrementAndGet()
         currentJob = scope.launch {
             try {
                 val buffer = Channel<SynthesisResult>(LOOKAHEAD)
-
-                val fillJob = launch {
-                    try {
-                        for (i in 0 until sentences.size) {
-                            if (!isActive) break
-                            val idx = startFrom + i
-                            if (idx >= total) break
-                            try {
-                                val result = ttsRepository.synthesize(sentences[idx].text, voice, speed)
-                                sentenceDurations[idx] = result.audioDurationMs
-                                buffer.send(result)
-                            } catch (e: CancellationException) { break }
-                            catch (e: Exception) {
-                                Log.e(TAG, "Synthesis error sentence $idx: ${e.message}", e)
-                            }
-                        }
-                    } finally {
-                        buffer.close()
-                    }
-                }
-
-                var started = false
-                var currentReadIdx = startFrom
-
+                val fillJob = launchSynthesisPipeline(buffer, sentences, voice, speed, startFrom, total)
                 try {
-                    for (result in buffer) {
-                        if (!isActive || (_state.value != State.Playing && _state.value != State.Loading)) break
-
-                        player.enqueue(result.samples)
-                        val silenceLen = (result.sampleRate * INTER_SENTENCE_SILENCE_MS / 1000)
-                            .coerceAtMost(GaplessAudioPlayer.SILENCE_BUFFER.size)
-                        player.enqueue(GaplessAudioPlayer.SILENCE_BUFFER.copyOf(silenceLen))
-
-                        if (!started) {
-                            _state.value = State.Playing
-                            player.play()
-                            started = true
-
-                            val firstDuration = sentenceDurations.getOrElse(startFrom) { 0L }
-                            val firstStartTime = System.currentTimeMillis()
-                            updatePlaybackState(
-                                index = startFrom,
-                                text = sentences.getOrNull(startFrom)?.text ?: "",
-                                total = total,
-                                status = PlaybackStatus.PLAYING,
-                                durationMs = firstDuration,
-                                startTimestamp = firstStartTime
-                            )
-
-                            launch {
-                                var lastSentenceIdx = startFrom
-                                while (isActive && _state.value == State.Playing &&
-                                       player.completedCount < (total - startFrom) * 2) {
-                                    val c = player.completedCount
-                                    val sentenceIdx = startFrom + c / 2
-                                    if (sentenceIdx != lastSentenceIdx) {
-                                        val currentSentence = sentences.getOrNull(sentenceIdx)
-                                        currentReadIdx = sentenceIdx
-                                        currentSentenceIdx.set(sentenceIdx)
-                                        _progress.value = Progress(
-                                            sentenceIdx, total, currentSentence)
-
-                                        val duration = sentenceDurations.getOrElse(sentenceIdx) { 0L }
-                                        val startTime = System.currentTimeMillis()
-
-                                        updatePlaybackState(
-                                            index = sentenceIdx,
-                                            text = currentSentence?.text ?: "",
-                                            total = total,
-                                            status = PlaybackStatus.PLAYING,
-                                            durationMs = duration,
-                                            startTimestamp = startTime
-                                        )
-
-                                        saveProgressAsync(
-                                            bookId = bookId,
-                                            chapterIdx = chapterIndex,
-                                            sentenceIdx = sentenceIdx,
-                                            charOffset = currentSentence?.startOffset ?: 0
-                                        )
-                                        lastSentenceIdx = sentenceIdx
-                                    }
-                                    delay(50)
-                                }
-                            }
-                        }
-                    }
-
-                    val expectedSegments = (total - startFrom) * 2
-                    while (player.completedCount < expectedSegments && isActive && _state.value == State.Playing) {
-                        delay(200)
-                    }
-                    delay(300)
-                    if (playGeneration.get() == myGeneration) {
-                        _state.value = State.Idle
-                        updatePlaybackState(
-                            index = currentReadIdx,
-                            text = "",
-                            total = total,
-                            status = PlaybackStatus.IDLE
-                        )
-                        saveProgressAsync(
-                            bookId = bookId,
-                            chapterIdx = chapterIndex,
-                            sentenceIdx = total,
-                            charOffset = 0
-                        )
-                    }
+                    consumeAndPlay(buffer, fillJob, sentences, voice, speed, startFrom, total,
+                        bookTitle, chapterTitle, bookId, chapterIndex, myGeneration)
                 } finally {
-                    fillJob.cancel()
-                    player.stop()
-                    audioFocusManager.abandonFocus()
+                    cleanupPlayback(fillJob)
                 }
             } catch (e: CancellationException) {
-                player.stop()
-                audioFocusManager.abandonFocus()
-                if (playGeneration.get() == myGeneration) {
-                    _state.value = State.Idle
-                    updatePlaybackState(
-                        index = currentSentenceIdx.get(),
-                        text = "",
-                        total = currentTotalSentences,
-                        status = PlaybackStatus.IDLE
-                    )
-                }
+                handleCancellation(myGeneration)
             } catch (e: Exception) {
-                Log.e(TAG, "Playback error", e)
-                if (playGeneration.get() == myGeneration) _state.value = State.Error(e.message ?: "Erreur")
-                updatePlaybackState(
-                    index = currentSentenceIdx.get(),
-                    text = "",
-                    total = currentTotalSentences,
-                    status = PlaybackStatus.IDLE
-                )
-                player.stop()
-                audioFocusManager.abandonFocus()
+                handlePlaybackError(e, myGeneration)
             }
         }
     }
@@ -482,12 +333,152 @@ class PlaybackOrchestrator @Inject constructor(
         audioFocusManager.setListener(null)
     }
 
-    // ── Private ───────────────────────────────────────
+    // ── Sous-méthodes extraites de play() (A01) ──────
 
-    /**
-     * Met à jour atomiquement le [PlaybackState] exposé à l'UI.
-     */
     private fun updatePlaybackState(
+        index: Int, text: String, total: Int, status: PlaybackStatus,
+        durationMs: Long = 0L, startTimestamp: Long = 0L
+    ) {
+        _playbackState.value = PlaybackState(
+            activeSentenceIndex = index, activeSentenceText = text,
+            totalSentences = total, status = status,
+            bookTitle = currentBookTitle, chapterTitle = currentChapterTitle,
+            sentenceDurationMs = durationMs, sentenceStartTimestamp = startTimestamp
+        )
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        val granted = audioFocusManager.requestFocus()
+        if (!granted) {
+            Log.w(TAG, "Focus audio refusé, lecture annulée")
+            _state.value = State.Error("Focus audio non disponible")
+        }
+        return granted
+    }
+
+    private fun initPlaybackParams(
+        sentences: List<Sentence>, voice: Int, speed: Float, startFrom: Int,
+        bookTitle: String, chapterTitle: String, bookId: String, chapterIndex: Int
+    ) {
+        player.sampleRate = onnxService.getSampleRate()
+        currentBookTitle = bookTitle
+        currentChapterTitle = chapterTitle
+        currentVoice = voice
+        currentSpeed = speed
+        currentBookId = bookId
+        currentChapterIdx = chapterIndex
+        currentSentenceIdx.set(startFrom)
+        currentTotalSentences = sentences.size
+        currentSentences = sentences
+        sentenceDurations = LongArray(sentences.size)
+    }
+
+    private fun CoroutineScope.launchSynthesisPipeline(
+        buffer: Channel<SynthesisResult>, sentences: List<Sentence>,
+        voice: Int, speed: Float, startFrom: Int, total: Int
+    ) = launch {
+        try {
+            for (i in 0 until sentences.size) {
+                if (currentJob?.isActive != true) break
+                val idx = startFrom + i
+                if (idx >= total) break
+                try {
+                    val result = ttsRepository.synthesize(sentences[idx].text, voice, speed)
+                    sentenceDurations[idx] = result.audioDurationMs
+                    buffer.send(result)
+                } catch (e: CancellationException) { break }
+                catch (e: Exception) {
+                    Log.e(TAG, "Synthesis error sentence $idx: ${e.message}", e)
+                }
+            }
+        } finally {
+            buffer.close()
+        }
+    }
+
+    private suspend fun consumeAndPlay(
+        buffer: Channel<SynthesisResult>, fillJob: Job, sentences: List<Sentence>,
+        voice: Int, speed: Float, startFrom: Int, total: Int,
+        bookTitle: String, chapterTitle: String, bookId: String, chapterIndex: Int,
+        myGeneration: Long
+    ) {
+        var started = false
+        var currentReadIdx = startFrom
+
+        for (result in buffer) {
+            if (currentJob?.isActive != true || (_state.value != State.Playing && _state.value != State.Loading)) break
+
+            player.enqueue(result.samples)
+            val silenceLen = (result.sampleRate * INTER_SENTENCE_SILENCE_MS / 1000)
+                .coerceAtMost(GaplessAudioPlayer.SILENCE_BUFFER.size)
+            player.enqueue(GaplessAudioPlayer.SILENCE_BUFFER.copyOf(silenceLen))
+
+            if (!started) {
+                _state.value = State.Playing
+                player.play()
+                started = true
+                updatePlaybackState(startFrom, sentences.getOrNull(startFrom)?.text ?: "", total,
+                    PlaybackStatus.PLAYING,
+                    if (startFrom >= 0 && startFrom < sentenceDurations.size) sentenceDurations[startFrom] else 0L,
+                    System.currentTimeMillis())
+                scope.launch {
+                    var lastIdx = startFrom
+                    while (currentJob?.isActive == true && _state.value == State.Playing &&
+                           player.completedCount < (total - startFrom) * 2) {
+                        val c = player.completedCount
+                        val sIdx = startFrom + c / 2
+                        if (sIdx != lastIdx) {
+                            val sent = sentences.getOrNull(sIdx)
+                            currentSentenceIdx.set(sIdx)
+                            _progress.value = Progress(sIdx, total, sent)
+                            val dur = if (sIdx >= 0 && sIdx < sentenceDurations.size) sentenceDurations[sIdx] else 0L
+                            updatePlaybackState(sIdx, sent?.text ?: "", total,
+                                PlaybackStatus.PLAYING, dur, System.currentTimeMillis())
+                            saveProgressAsync(bookId, chapterIndex, sIdx, sent?.startOffset ?: 0)
+                            lastIdx = sIdx
+                        }
+                        delay(50)
+                    }
+                }
+            }
+        }
+
+        val expectedSegments = (total - startFrom) * 2
+        while (player.completedCount < expectedSegments && currentJob?.isActive == true && _state.value == State.Playing) {
+            delay(200)
+        }
+        delay(300)
+        if (playGeneration.get() == myGeneration) {
+            _state.value = State.Idle
+            updatePlaybackState(currentReadIdx, "", total, PlaybackStatus.IDLE)
+            saveProgressAsync(bookId, chapterIndex, total, 0)
+        }
+    }
+
+    private fun cleanupPlayback(fillJob: Job) {
+        fillJob.cancel()
+        player.stop()
+        audioFocusManager.abandonFocus()
+    }
+
+    private fun handleCancellation(myGeneration: Long) {
+        player.stop()
+        audioFocusManager.abandonFocus()
+        if (playGeneration.get() == myGeneration) {
+            _state.value = State.Idle
+            updatePlaybackState(currentSentenceIdx.get(), "", currentTotalSentences, PlaybackStatus.IDLE)
+        }
+    }
+
+    private fun handlePlaybackError(e: Exception, myGeneration: Long) {
+        Log.e(TAG, "Playback error", e)
+        if (playGeneration.get() == myGeneration) _state.value = State.Error(e.message ?: "Erreur")
+        updatePlaybackState(currentSentenceIdx.get(), "", currentTotalSentences, PlaybackStatus.IDLE)
+        player.stop()
+        audioFocusManager.abandonFocus()
+    }
+
+    private fun saveProgressAsync(
         index: Int,
         text: String,
         total: Int,

@@ -1,12 +1,6 @@
 package com.readflow.ui.screen.reader
 
-import android.Manifest
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,13 +13,11 @@ import com.readflow.data.database.HighlightDao
 import com.readflow.data.database.entity.AnnotationEntity
 import com.readflow.data.database.entity.BookmarkEntity
 import com.readflow.data.database.entity.HighlightEntity
-import com.readflow.service.audio.AudioPlaybackService
 import com.readflow.service.audio.PlaybackOrchestrator
 import com.readflow.service.audio.PlaybackState
 import com.readflow.service.audio.PlaybackStatus
 import com.readflow.service.onnx.OnnxInferenceService
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -71,7 +63,7 @@ class ReaderViewModel @Inject constructor(
     private val bookmarkDao: BookmarkDao,
     private val highlightDao: HighlightDao,
     private val annotationDao: AnnotationDao,
-    @ApplicationContext private val context: Context
+    private val audioServiceLauncher: com.readflow.domain.service.AudioServiceLauncher
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
@@ -350,14 +342,11 @@ class ReaderViewModel @Inject constructor(
     fun play() {
         val chapter = _uiState.value.currentChapter ?: return
         val book = currentBook ?: return
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                _uiState.update { it.copy(error = "Permission notification requise.") }
-                return
-            }
+        if (!audioServiceLauncher.canStart()) {
+            _uiState.update { it.copy(error = "Permission notification requise.") }
+            return
         }
-        val intent = Intent(context, AudioPlaybackService::class.java)
-        ContextCompat.startForegroundService(context, intent)
+        audioServiceLauncher.start()
         val startFrom = if (isPausedForResume) _uiState.value.currentSentenceIndex else 0
         isPausedForResume = false
         val s = _uiState.value

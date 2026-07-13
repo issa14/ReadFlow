@@ -23,6 +23,8 @@ import com.readflow.data.repository.BookRepositoryImpl
 import com.readflow.data.repository.TtsRepositoryImpl
 import com.readflow.domain.repository.BookRepository
 import com.readflow.domain.repository.TtsRepository
+import com.readflow.domain.service.AudioServiceLauncher
+import com.readflow.service.audio.AudioServiceLauncherImpl
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -89,4 +91,8 @@ object AppModule {
     @Provides
     @Singleton
     fun provideTtsRepository(impl: TtsRepositoryImpl): TtsRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideAudioServiceLauncher(impl: AudioServiceLauncherImpl): AudioServiceLauncher = impl
 }
