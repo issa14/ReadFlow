@@ -105,14 +105,17 @@ class PlaybackOrchestrator @Inject constructor(
 
     @Volatile private var currentBookId: String? = null
     @Volatile private var currentChapterIdx: Int = 0
-    @Volatile private var currentSentenceIdx: Int = 0
+    // AtomicInteger garantit la visibilité ET l'atomicité des lectures/écritures
+    // entre coroutines, contrairement à @Volatile qui ne garantit pas l'atomicité
+    // des opérations read-modify-write.
+    private val currentSentenceIdx = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var currentTotalSentences: Int = 0
     @Volatile private var currentSentences: List<Sentence> = emptyList()
 
     private lateinit var sentenceDurations: LongArray // alloué dans play()
 
     private var currentJob: Job? = null
-    @Volatile private var playGeneration: Long = 0L
+    private val playGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var wasPausedByFocusLoss: Boolean = false
 
     init {
@@ -171,8 +174,8 @@ class PlaybackOrchestrator @Inject constructor(
     fun seekToNext() {
         val sentences = currentSentences
         if (sentences.isEmpty()) return
-        val next = (currentSentenceIdx + 1).coerceAtMost(sentences.lastIndex)
-        if (next != currentSentenceIdx) {
+        val next = (currentSentenceIdx.get() + 1).coerceAtMost(sentences.lastIndex)
+        if (next != currentSentenceIdx.get()) {
             val bookId = currentBookId ?: return
             stop()
             play(
@@ -191,8 +194,8 @@ class PlaybackOrchestrator @Inject constructor(
     fun seekToPrevious() {
         val sentences = currentSentences
         if (sentences.isEmpty()) return
-        val prev = (currentSentenceIdx - 1).coerceAtLeast(0)
-        if (prev != currentSentenceIdx) {
+        val prev = (currentSentenceIdx.get() - 1).coerceAtLeast(0)
+        if (prev != currentSentenceIdx.get()) {
             val bookId = currentBookId ?: return
             stop()
             play(
@@ -237,7 +240,7 @@ class PlaybackOrchestrator @Inject constructor(
         currentSpeed = speed
         currentBookId = bookId
         currentChapterIdx = chapterIndex
-        currentSentenceIdx = startFrom
+        currentSentenceIdx.set(startFrom)
         currentTotalSentences = sentences.size
         currentSentences = sentences
 
@@ -254,7 +257,7 @@ class PlaybackOrchestrator @Inject constructor(
             status = PlaybackStatus.BUFFERING
         )
 
-        val myGeneration = ++playGeneration
+        val myGeneration = playGeneration.incrementAndGet()
         currentJob = scope.launch {
             try {
                 val buffer = Channel<SynthesisResult>(LOOKAHEAD)
@@ -316,7 +319,7 @@ class PlaybackOrchestrator @Inject constructor(
                                     if (sentenceIdx != lastSentenceIdx) {
                                         val currentSentence = sentences.getOrNull(sentenceIdx)
                                         currentReadIdx = sentenceIdx
-                                        currentSentenceIdx = sentenceIdx
+                                        currentSentenceIdx.set(sentenceIdx)
                                         _progress.value = Progress(
                                             sentenceIdx, total, currentSentence)
 
@@ -351,7 +354,7 @@ class PlaybackOrchestrator @Inject constructor(
                         delay(200)
                     }
                     delay(300)
-                    if (playGeneration == myGeneration) {
+                    if (playGeneration.get() == myGeneration) {
                         _state.value = State.Idle
                         updatePlaybackState(
                             index = currentReadIdx,
@@ -374,10 +377,10 @@ class PlaybackOrchestrator @Inject constructor(
             } catch (e: CancellationException) {
                 player.stop()
                 audioFocusManager.abandonFocus()
-                if (playGeneration == myGeneration) {
+                if (playGeneration.get() == myGeneration) {
                     _state.value = State.Idle
                     updatePlaybackState(
-                        index = currentSentenceIdx,
+                        index = currentSentenceIdx.get(),
                         text = "",
                         total = currentTotalSentences,
                         status = PlaybackStatus.IDLE
@@ -385,9 +388,9 @@ class PlaybackOrchestrator @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Playback error", e)
-                if (playGeneration == myGeneration) _state.value = State.Error(e.message ?: "Erreur")
+                if (playGeneration.get() == myGeneration) _state.value = State.Error(e.message ?: "Erreur")
                 updatePlaybackState(
-                    index = currentSentenceIdx,
+                    index = currentSentenceIdx.get(),
                     text = "",
                     total = currentTotalSentences,
                     status = PlaybackStatus.IDLE
@@ -402,8 +405,8 @@ class PlaybackOrchestrator @Inject constructor(
         _state.value = State.Paused
         player.pause()
         updatePlaybackState(
-            index = currentSentenceIdx,
-            text = currentSentences.getOrNull(currentSentenceIdx)?.text ?: "",
+            index = currentSentenceIdx.get(),
+            text = currentSentences.getOrNull(currentSentenceIdx.get())?.text ?: "",
             total = currentTotalSentences,
             status = PlaybackStatus.PAUSED
         )
@@ -413,8 +416,8 @@ class PlaybackOrchestrator @Inject constructor(
         _state.value = State.Playing
         player.resume()
         updatePlaybackState(
-            index = currentSentenceIdx,
-            text = currentSentences.getOrNull(currentSentenceIdx)?.text ?: "",
+            index = currentSentenceIdx.get(),
+            text = currentSentences.getOrNull(currentSentenceIdx.get())?.text ?: "",
             total = currentTotalSentences,
             status = PlaybackStatus.PLAYING
         )
