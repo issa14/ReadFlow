@@ -6,6 +6,7 @@ import android.util.Log
 import com.readflow.data.database.BookDao
 import com.readflow.data.database.ProgressDao
 import com.readflow.data.database.SentenceCacheDao
+import com.readflow.data.epub.SpineIndex
 import com.readflow.data.mapper.toDomain
 import com.readflow.data.mapper.toEntity
 import com.readflow.domain.model.Book
@@ -96,14 +97,6 @@ class BookRepositoryImpl @Inject constructor(
             val author = publication.metadata.authors.joinToString(", ") { it.name }
                 .takeIf { it.isNotBlank() } ?: "Auteur inconnu"
 
-            // ── Extraire les titres du TOC (tableOfContents) ──
-            // Le spine (readingOrder) est plat, le TOC est hiérarchique.
-            // On aplatit le TOC et on construit un map href → titre pour
-            // remplacer les titres pauvres du spine ("ch1.xhtml") par
-            // les vrais titres définis par l'auteur.
-            val tocTitleMap = buildTocTitleMap(publication.tableOfContents)
-            Log.d("BookRepo", "TOC: ${tocTitleMap.size} entrées extraites")
-
             // Extraction de la couverture de l'EPUB de manière robuste via l'archive ZIP
             var coverPath: String? = null
             try {
@@ -132,7 +125,22 @@ class BookRepositoryImpl @Inject constructor(
                 Log.e("BookRepo", "Erreur lors de l'extraction de la couverture du ZIP", e)
             }
 
-            val totalChapters = publication.readingOrder.size
+            // ── Construire l'index spine ──
+            val spineIndex = SpineIndex(publication.readingOrder)
+
+            // ── Aplatir le TOC en liste ordonnée (skip les entrées sans href) ──
+            val flatToc = mutableListOf<org.readium.r2.shared.publication.Link>()
+            fun flatten(links: List<org.readium.r2.shared.publication.Link>) {
+                for (link in links) {
+                    if (link.href.toString().isNotBlank()) flatToc.add(link)
+                    flatten(link.children)
+                }
+            }
+            flatten(publication.tableOfContents)
+
+            val totalChapters = flatToc.size
+            Log.d("BookRepo", "TOC: ${publication.tableOfContents.size} racines → $totalChapters entrées, spineIndex.size=${spineIndex.size}")
+
             val book = Book(
                 id = bookId,
                 title = title,
@@ -147,25 +155,41 @@ class BookRepositoryImpl @Inject constructor(
             onProgress(0.25f, "Enregistrement du livre...")
             bookDao.insert(book.toEntity(epubFile.absolutePath, coverPath))
 
-            // Pré-chargement et segmentation de tous les chapitres pour un rendu instantané
+            // ── Import basé TOC (les chapitres = entrées du TOC, pas du spine) ──
             val startCacheProgress = 0.25f
             val endCacheProgress = 1.00f
-            val range = endCacheProgress - startCacheProgress
+            val progressRange = endCacheProgress - startCacheProgress
 
             for (i in 0 until totalChapters) {
-                val progressFraction = startCacheProgress + range * (i.toFloat() / totalChapters)
-                val displayIndex = i + 1
-                onProgress(progressFraction, "Optimisation du chapitre $displayIndex sur $totalChapters...")
+                val progressFraction = startCacheProgress + progressRange * (i.toFloat() / totalChapters)
+                val tocLink = flatToc[i]
+                val chapterTitle = tocLink.title?.takeIf { it.isNotBlank() } ?: "Chapitre ${i + 1}"
+                onProgress(progressFraction, "Optimisation : $chapterTitle...")
 
                 try {
-                    val link = publication.readingOrder[i]
-                    val text = extractHtml(epubFile, link.href.toString())
-                    chunkText(bookId, i, text)
-                    // Titre : TOC d'abord, puis titre du link spine, puis fallback
-                    val chapterTitle = resolveChapterTitle(link, tocTitleMap, i)
+                    val nextTocLink = flatToc.getOrNull(i + 1)
+                    val spineRange = spineIndex.resolveRange(tocLink, nextTocLink)
+
+                    if (spineRange.isEmpty()) {
+                        Log.w("BookRepo", "TOC '$chapterTitle' (${tocLink.href}) non trouvé dans le spine — ignoré")
+                        sentenceCacheDao.updateChapterTitle(bookId, i, "$chapterTitle (non trouvé)")
+                        continue
+                    }
+
+                    // Concaténer le HTML de tous les fichiers spine de la plage
+                    val combinedHtml = buildString {
+                        for (spineIdx in spineRange) {
+                            val link = publication.readingOrder[spineIdx]
+                            append(extractHtml(epubFile, link.href.toString()))
+                            append("\n\n")
+                        }
+                    }
+
+                    chunkText(bookId, i, combinedHtml)
                     sentenceCacheDao.updateChapterTitle(bookId, i, chapterTitle)
+                    Log.d("BookRepo", "Chapitre TOC $i '$chapterTitle' : spine ${spineRange.first}..${spineRange.last} (${spineRange.count()} fichiers)")
                 } catch (e: Exception) {
-                    Log.e("BookRepo", "Erreur lors de la pré-segmentation du chapitre $i", e)
+                    Log.e("BookRepo", "Erreur import chapitre TOC $i '$chapterTitle' : ${e.message}", e)
                 }
             }
 
@@ -306,51 +330,5 @@ class BookRepositoryImpl @Inject constructor(
             .replace(DOUBLE_SPACES_PATTERN, " ")
             .replace(TRIPLE_NEWLINE_PATTERN, "\n\n")
             .trim()
-    }
-
-    /**
-     * Aplatit le TOC hiérarchique en un map href → titre.
-     *
-     * Le TOC Readium est une liste de [Link] avec potentiellement
-     * des [Link.children] imbriqués (Parties → Chapitres → Sections).
-     * On parcourt récursivement et on normalise les hrefs pour
-     * matcher ceux du spine.
-     */
-    private fun buildTocTitleMap(
-        toc: List<org.readium.r2.shared.publication.Link>
-    ): Map<String, String> {
-        val map = mutableMapOf<String, String>()
-        fun walk(links: List<org.readium.r2.shared.publication.Link>, depth: Int) {
-            for (link in links) {
-                val href = link.href.toString().substringAfterLast("/").substringBefore("#")
-                if (href.isNotBlank() && link.title?.isNotBlank() == true) {
-                    // Préfixer avec "— " pour les sous-niveaux
-                    val prefix = "— ".repeat(depth.coerceAtMost(2))
-                    map[href] = "$prefix${link.title}"
-                }
-                walk(link.children, depth + 1)
-            }
-        }
-        walk(toc, 0)
-        return map
-    }
-
-    /**
-     * Résout le titre d'un chapitre en priorisant le TOC.
-     *
-     * Ordre de priorité :
-     * 1. Titre du TOC (défini par l'auteur)
-     * 2. Titre du link spine (attribut title dans le OPF)
-     * 3. Fallback "Chapitre N"
-     */
-    private fun resolveChapterTitle(
-        link: org.readium.r2.shared.publication.Link,
-        tocTitleMap: Map<String, String>,
-        index: Int
-    ): String {
-        val href = link.href.toString().substringAfterLast("/").substringBefore("#")
-        return tocTitleMap[href]
-            ?: link.title?.takeIf { it.isNotBlank() }
-            ?: "Chapitre ${index + 1}"
     }
 }
