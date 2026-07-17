@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.readflow.domain.model.Book
 import com.readflow.domain.model.Chapter
 import com.readflow.domain.repository.BookRepository
+import com.readflow.domain.repository.TtsRepository
 import com.readflow.data.database.AnnotationDao
 import com.readflow.data.database.BookmarkDao
 import com.readflow.data.database.HighlightDao
@@ -18,6 +19,7 @@ import com.readflow.service.audio.PlaybackState
 import com.readflow.service.audio.PlaybackStatus
 import com.readflow.service.onnx.OnnxInferenceService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -63,7 +65,8 @@ class ReaderViewModel @Inject constructor(
     private val bookmarkDao: BookmarkDao,
     private val highlightDao: HighlightDao,
     private val annotationDao: AnnotationDao,
-    private val audioServiceLauncher: com.readflow.domain.service.AudioServiceLauncher
+    private val audioServiceLauncher: com.readflow.domain.service.AudioServiceLauncher,
+    private val ttsRepository: TtsRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
@@ -297,6 +300,9 @@ class ReaderViewModel @Inject constructor(
                         isLoading = false, isLoadingChapter = false
                     )
                 }
+
+                // Lancer le préchauffage du chapitre suivant en arrière-plan
+                preWarmNextChapter(book, index)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false, isLoadingChapter = false) }
             }
@@ -383,6 +389,30 @@ class ReaderViewModel @Inject constructor(
         if (currentIdx >= lastIdx) {
             val next = _uiState.value.currentChapterIndex + 1
             if (next < book.totalChapters) loadChapter(next)
+        }
+    }
+
+    /**
+     * Pré-synthétise la première phrase du chapitre suivant en arrière-plan.
+     *
+     * Appelé après chaque [loadChapter] pour que le passage au chapitre N+1
+     * soit instantané (gap zéro, pas d'attente de synthèse WebSocket/ONNX).
+     */
+    private fun preWarmNextChapter(book: Book, currentIndex: Int) {
+        val nextIndex = currentIndex + 1
+        if (nextIndex >= book.totalChapters) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val nextChapter = bookRepository.getChapter(book.id, nextIndex)
+                val firstSentence = nextChapter.sentences.firstOrNull() ?: return@launch
+                val s = _uiState.value
+                val result = ttsRepository.synthesize(firstSentence.text, s.voice, s.speed)
+                orchestrator.preWarm(result)
+                Log.d("ReaderVM", "Pre-warm OK: chapitre ${nextIndex + 1}, phrase 1 (${result.engineId})")
+            } catch (e: Exception) {
+                Log.w("ReaderVM", "Pre-warm échoué pour chapitre ${nextIndex + 1}: ${e.message}")
+            }
         }
     }
 

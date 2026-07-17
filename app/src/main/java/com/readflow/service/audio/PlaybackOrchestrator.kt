@@ -148,6 +148,15 @@ class PlaybackOrchestrator @Inject constructor(
      */
     private val stateLock = ReentrantLock()
 
+    /**
+     * Channel de préchauffage pour les phrases du chapitre suivant.
+     *
+     * Le ViewModel peut y pousser des résultats de synthèse pré-calculés
+     * (pre-warm) qui seront consommés après l'épuisement du buffer principal.
+     * Cela permet un enchaînement inter-chapitre sans gap.
+     */
+    private val preWarmChannel = Channel<SynthesisResult>(Channel.UNLIMITED)
+
     init {
         audioFocusManager.setListener(this)
     }
@@ -359,6 +368,8 @@ class PlaybackOrchestrator @Inject constructor(
         try {
             currentJob?.cancel()
             currentJob = null
+            // Vider le channel de préchauffage
+            preWarmChannel.cancel()
             player.stop()
             audioFocusManager.abandonFocus()
             _state.value = State.Idle
@@ -372,6 +383,18 @@ class PlaybackOrchestrator @Inject constructor(
         } finally {
             stateLock.unlock()
         }
+    }
+
+    /**
+     * Injecte un résultat de synthèse pré-calculé dans le pipeline.
+     *
+     * Appelé par le ViewModel pour précharger la première phrase
+     * du chapitre suivant pendant la lecture du chapitre courant.
+     * Le résultat sera consommé après épuisement du buffer principal.
+     */
+    fun preWarm(result: SynthesisResult) {
+        preWarmChannel.trySend(result)
+        Log.d(TAG, "TtsDebug | preWarm: sentence pré-synthétisée injectée (engine=${result.engineId})")
     }
 
     fun release() {
@@ -513,6 +536,19 @@ class PlaybackOrchestrator @Inject constructor(
                     }
                 }
             }
+        }
+
+        // ── Consommer les résultats préchauffés (chapitre suivant) ──
+        while (true) {
+            val preWarmed = preWarmChannel.tryReceive().getOrNull() ?: break
+            if (currentJob?.isActive != true || _state.value == State.Idle || _state.value is State.Error) break
+
+            player.enqueue(preWarmed.samples)
+            Log.d(TAG, "TtsDebug | preWarm enqueue: ${preWarmed.samples.size} samples PCM, engine=${preWarmed.engineId}")
+            val silenceMs = silenceDurationFor(preWarmed.text)
+            val silenceLen = (preWarmed.sampleRate * silenceMs / 1000)
+                .coerceAtMost(GaplessAudioPlayer.SILENCE_BUFFER.size)
+            player.enqueue(GaplessAudioPlayer.SILENCE_BUFFER.copyOf(silenceLen))
         }
 
         val expectedSegments = (total - startFrom) * 2

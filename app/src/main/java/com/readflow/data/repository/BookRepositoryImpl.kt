@@ -96,6 +96,14 @@ class BookRepositoryImpl @Inject constructor(
             val author = publication.metadata.authors.joinToString(", ") { it.name }
                 .takeIf { it.isNotBlank() } ?: "Auteur inconnu"
 
+            // ── Extraire les titres du TOC (tableOfContents) ──
+            // Le spine (readingOrder) est plat, le TOC est hiérarchique.
+            // On aplatit le TOC et on construit un map href → titre pour
+            // remplacer les titres pauvres du spine ("ch1.xhtml") par
+            // les vrais titres définis par l'auteur.
+            val tocTitleMap = buildTocTitleMap(publication.tableOfContents)
+            Log.d("BookRepo", "TOC: ${tocTitleMap.size} entrées extraites")
+
             // Extraction de la couverture de l'EPUB de manière robuste via l'archive ZIP
             var coverPath: String? = null
             try {
@@ -152,10 +160,9 @@ class BookRepositoryImpl @Inject constructor(
                 try {
                     val link = publication.readingOrder[i]
                     val text = extractHtml(epubFile, link.href.toString())
-                    // Segmente et stocke directement en cache Room via ChunkTextUseCase
                     chunkText(bookId, i, text)
-                    // Stocke aussi le titre du chapitre pour éviter de rouvrir l'EPUB plus tard
-                    val chapterTitle = link.title?.takeIf { it.isNotBlank() } ?: "Chapitre ${i + 1}"
+                    // Titre : TOC d'abord, puis titre du link spine, puis fallback
+                    val chapterTitle = resolveChapterTitle(link, tocTitleMap, i)
                     sentenceCacheDao.updateChapterTitle(bookId, i, chapterTitle)
                 } catch (e: Exception) {
                     Log.e("BookRepo", "Erreur lors de la pré-segmentation du chapitre $i", e)
@@ -299,5 +306,51 @@ class BookRepositoryImpl @Inject constructor(
             .replace(DOUBLE_SPACES_PATTERN, " ")
             .replace(TRIPLE_NEWLINE_PATTERN, "\n\n")
             .trim()
+    }
+
+    /**
+     * Aplatit le TOC hiérarchique en un map href → titre.
+     *
+     * Le TOC Readium est une liste de [Link] avec potentiellement
+     * des [Link.children] imbriqués (Parties → Chapitres → Sections).
+     * On parcourt récursivement et on normalise les hrefs pour
+     * matcher ceux du spine.
+     */
+    private fun buildTocTitleMap(
+        toc: List<org.readium.r2.shared.publication.Link>
+    ): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        fun walk(links: List<org.readium.r2.shared.publication.Link>, depth: Int) {
+            for (link in links) {
+                val href = link.href.toString().substringAfterLast("/").substringBefore("#")
+                if (href.isNotBlank() && link.title?.isNotBlank() == true) {
+                    // Préfixer avec "— " pour les sous-niveaux
+                    val prefix = "— ".repeat(depth.coerceAtMost(2))
+                    map[href] = "$prefix${link.title}"
+                }
+                walk(link.children, depth + 1)
+            }
+        }
+        walk(toc, 0)
+        return map
+    }
+
+    /**
+     * Résout le titre d'un chapitre en priorisant le TOC.
+     *
+     * Ordre de priorité :
+     * 1. Titre du TOC (défini par l'auteur)
+     * 2. Titre du link spine (attribut title dans le OPF)
+     * 3. Fallback "Chapitre N"
+     */
+    private fun resolveChapterTitle(
+        link: org.readium.r2.shared.publication.Link,
+        tocTitleMap: Map<String, String>,
+        index: Int
+    ): String {
+        val href = link.href.toString().substringAfterLast("/").substringBefore("#")
+        return tocTitleMap[href]
+            ?: link.title?.takeIf { it.isNotBlank() }
+            ?: "Chapitre ${index + 1}"
     }
 }
