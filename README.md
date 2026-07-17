@@ -1,12 +1,12 @@
 # 📖 ReadFlow
 
-> Lecteur d'ebooks Android avec synthèse vocale neuronale locale — 100% offline, 100% français.
+> Lecteur d'ebooks Android avec synthèse vocale neuronale — 100% français, offline & cloud.
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.x-7F52FF?logo=kotlin)](https://kotlinlang.org/)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
 [![Architecture](https://img.shields.io/badge/Architecture-Clean%20%2B%20MVI-00C853)](./architecture.md)
 [![License](https://img.shields.io/badge/License-MIT-blue)](./LICENSE)
-[![Status](https://img.shields.io/badge/Status-Phase%203%E2%80%934%20%E2%80%94%20UI%20%2B%20Polish-brightgreen)](./PROJECT_STATUS.md)
+[![Status](https://img.shields.io/badge/Status-Phase%204%20%E2%80%94%20Polish%20%26%20Release-brightgreen)](./PROJECT_STATUS.md)
 
 ---
 
@@ -61,8 +61,8 @@ Voir le document complet : **[📄 ARCHITECTURE.md](./architecture.md)**
 
 - **Android Studio** Hedgehog (2024.1+) ou plus récent
 - **JDK 17+**
-- **Android SDK 34+** (Android 14)
-- **Appareil Android 14+ ARM64** (Snapdragon 680 testé)
+- **Android SDK 35+**
+- **Appareil Android 8+ ARM64** (Snapdragon 680 testé)
 
 ### Build & Run
 
@@ -93,9 +93,9 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 → **[📊 PROJECT_STATUS.md](./PROJECT_STATUS.md)** — Suivi détaillé des tâches, bloqueurs, risques et métriques.
 
-**Phase actuelle :** Phase 3 (UI) complétée — Phase 4 (Polish & Release) en cours  
-**Progression :** ~75%  
-**Modèle TTS :** Piper VITS `fr_FR-miro-high` (61 Mo, RTF ~0.24)
+**Phase actuelle :** Phase 4 — Polish & Release  
+**Progression :** ~80%  
+**Moteurs TTS :** Piper VITS `fr_FR-miro-high` (local) + Microsoft Edge TTS (cloud, Vivienne & Henri)
 
 ---
 
