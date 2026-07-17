@@ -7,6 +7,7 @@ import com.readflow.domain.model.SynthesisResult
 import com.readflow.domain.provider.TtsProvider
 import com.readflow.domain.repository.TtsRepository
 import com.readflow.service.audio.AudioCacheManager
+import com.readflow.service.edge.EdgeTtsClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -41,15 +42,37 @@ class TtsRepositoryImpl @Inject constructor(
     ): SynthesisResult = withContext(Dispatchers.Default) {
         val provider = resolveProvider()
         val voiceId = resolveVoiceId(provider, voice)
-
         val correctedText = applyPronunciationRules(text)
-        val key = "${provider.engineId}|${correctedText.trim()}|${voiceId}|${"%.2f".format(speed)}"
 
-        cache.get(key)?.let { return@withContext it }
+        try {
+            val key = "${provider.engineId}|${correctedText.trim()}|${voiceId}|${"%.2f".format(speed)}"
+            cache.get(key)?.let { return@withContext it }
 
-        val result = provider.synthesize(correctedText, voiceId, speed)
-        cache.put(key, result)
-        result
+            val result = provider.synthesize(correctedText, voiceId, speed)
+            cache.put(key, result)
+            result
+        } catch (e: Exception) {
+            // Si le provider actif est Edge et que l'erreur est réseau → fallback Piper
+            if (provider.engineId == "edge" && EdgeTtsClient.isNetworkError(e)) {
+                Log.w(TAG, "Edge TTS échec réseau → fallback automatique sur Piper (session)")
+                val piper = providers.find { it.engineId == "piper" }
+                if (piper != null && piper.isAvailable) {
+                    // Invalider le cache provider pour cette session
+                    cachedProvider = piper
+                    cachedEngineId = "piper"
+
+                    val piperVoiceId = resolveVoiceId(piper, voice)
+                    val piperKey = "piper|${correctedText.trim()}|${piperVoiceId}|${"%.2f".format(speed)}"
+                    cache.get(piperKey)?.let { return@withContext it }
+
+                    val piperResult = piper.synthesize(correctedText, piperVoiceId, speed)
+                    cache.put(piperKey, piperResult)
+                    return@withContext piperResult
+                }
+            }
+            // Erreur non-réseau ou Piper indisponible → propager
+            throw e
+        }
     }
 
     override fun getAvailableEngines(): List<TtsProvider> {

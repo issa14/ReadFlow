@@ -6,13 +6,15 @@ import android.net.NetworkCapabilities
 import android.util.Log
 import com.readflow.domain.model.SynthesisResult
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import kotlinx.coroutines.withTimeout
 import okhttp3.*
 import okio.ByteString
 import java.io.ByteArrayOutputStream
+import java.net.ConnectException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
@@ -62,6 +64,12 @@ class EdgeTtsClient @Inject constructor(
 
         /** Timeout de synthèse (ms). */
         private const val SYNTHESIS_TIMEOUT_MS = 15_000L
+
+        /** Nombre maximal de tentatives de synthèse. */
+        private const val MAX_RETRIES = 3
+
+        /** Délai initial entre deux tentatives (ms). Doublé à chaque retry. */
+        private const val RETRY_BASE_DELAY_MS = 500L
 
         /** Voix disponibles. */
         val VOICES = listOf(
@@ -117,12 +125,29 @@ class EdgeTtsClient @Inject constructor(
          */
         fun generateMuid(): String {
             val bytes = ByteArray(16)
-            // Simple PRNG — pas besoin de crypto-grade pour un cookie de tracking
             for (i in bytes.indices) {
                 bytes[i] = ((System.nanoTime() shr (i * 4)) and 0xFF).toByte()
             }
             val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
             return digest.take(16).joinToString("") { "%02x".format(it) }.uppercase()
+        }
+
+        /**
+         * Détermine si une exception est liée à un problème réseau transitoire.
+         *
+         * Classification par **type d'exception** (pas par message) :
+         * - [UnknownHostException] : DNS injoignable
+         * - [SocketTimeoutException] : timeout TCP
+         * - [ConnectException] : connexion refusée / réseau down
+         * - [SocketException] : rupture de connexion
+         * - [IllegalStateException] avec "Réseau indisponible" : notre propre check pré-vol
+         */
+        fun isNetworkError(e: Throwable): Boolean {
+            return e is UnknownHostException ||
+                   e is SocketTimeoutException ||
+                   e is ConnectException ||
+                   e is SocketException ||
+                   (e is IllegalStateException && (e.message?.contains("Réseau indisponible") == true))
         }
     }
 
@@ -147,55 +172,82 @@ class EdgeTtsClient @Inject constructor(
         }
 
     /**
-     * Synthétise un texte via Microsoft Edge TTS.
+     * Synthétise un texte via Microsoft Edge TTS avec retry automatique.
+     *
+     * Stratégie de retry (3 tentatives, backoff exponentiel) :
+     * - Tentative 1 : immédiate
+     * - Tentative 2 : après 500ms
+     * - Tentative 3 : après 1000ms supplémentaires
+     *
+     * Seules les erreurs réseau transitoires ([isNetworkError]) déclenchent un retry.
+     * Les erreurs permanentes (403, autre) remontent immédiatement.
      *
      * @param text      Texte à synthétiser (déjà nettoyé).
      * @param voiceName Nom complet de la voix (ex: "fr-FR-VivienneNeural").
      * @param speed     Vitesse d'élocution (0.5 à 2.0).
      * @return [SynthesisResult] contenant les échantillons PCM.
-     * @throws IllegalStateException si le réseau est indisponible.
-     * @throws kotlinx.coroutines.TimeoutCancellationException si le timeout est dépassé.
      */
     suspend fun synthesize(
         text: String,
         voiceName: String,
         speed: Float
     ): SynthesisResult = withContext(Dispatchers.IO) {
-        if (!isAvailable) {
-            throw IllegalStateException("Réseau indisponible pour la synthèse Edge TTS")
-        }
-
         val voice = if (voiceName in VOICES) voiceName else VOICES.first()
         val ssml = buildSsml(text, voice, speed.coerceIn(0.5f, 2.0f))
 
-        Log.d(TAG, "Synthèse Edge TTS: voice=$voice, speed=$speed, text=\"${text.take(60)}...\"")
+        var lastException: Exception? = null
 
-        val startMs = System.currentTimeMillis()
+        for (attempt in 0 until MAX_RETRIES) {
+            try {
+                if (attempt > 0) {
+                    val delayMs = RETRY_BASE_DELAY_MS * (1L shl (attempt - 1))
+                    Log.w(TAG, "Edge TTS retry ${attempt + 1}/$MAX_RETRIES après ${delayMs}ms...")
+                    delay(delayMs)
+                }
 
-        val mp3Bytes = withTimeout(SYNTHESIS_TIMEOUT_MS) {
-            synthesizeViaWebSocket(ssml)
+                Log.d(TAG, "Synthèse Edge TTS (tentative ${attempt + 1}/$MAX_RETRIES): " +
+                    "voice=$voice, speed=$speed, text=\"${text.take(60)}...\"")
+
+                val startMs = System.currentTimeMillis()
+
+                val mp3Bytes = withTimeout(SYNTHESIS_TIMEOUT_MS) {
+                    synthesizeViaWebSocket(ssml)
+                }
+
+                val networkMs = System.currentTimeMillis() - startMs
+                val decoded = mp3Decoder.decode(mp3Bytes, context.cacheDir)
+                val totalMs = System.currentTimeMillis() - startMs
+                val durationMs = ((decoded.samples.size.toFloat() / decoded.sampleRate) * 1000).toLong()
+
+                Log.i(TAG, "Synthèse OK: réseau=${networkMs}ms, décodage=${totalMs - networkMs}ms, " +
+                    "audio=${durationMs}ms, PCM=${decoded.samples.size} éch., tentative=${attempt + 1}")
+
+                return@withContext SynthesisResult(
+                    samples = decoded.samples,
+                    sampleRate = decoded.sampleRate,
+                    text = text,
+                    voiceLabel = voiceDisplayName(voice),
+                    synthesisTimeMs = totalMs,
+                    audioDurationMs = durationMs,
+                    engineId = "edge"
+                )
+            } catch (e: CancellationException) {
+                throw e // Ne jamais retry une annulation
+            } catch (e: Exception) {
+                lastException = e
+                val isTransient = isNetworkError(e)
+                Log.w(TAG, "Tentative ${attempt + 1}/$MAX_RETRIES échouée " +
+                    "(transitoire=$isTransient): ${e.message}")
+                if (!isTransient || attempt == MAX_RETRIES - 1) {
+                    // Erreur permanente ou dernière tentative → propager
+                    throw e
+                }
+                // Erreur réseau transitoire → retry
+            }
         }
 
-        val networkMs = System.currentTimeMillis() - startMs
-
-        // Décodage MP3 → PCM
-        val decoded = mp3Decoder.decode(mp3Bytes, context.cacheDir)
-
-        val totalMs = System.currentTimeMillis() - startMs
-        val durationMs = ((decoded.samples.size.toFloat() / decoded.sampleRate) * 1000).toLong()
-
-        Log.i(TAG, "Synthèse OK: réseau=${networkMs}ms, décodage=${totalMs - networkMs}ms, " +
-                "audio=${durationMs}ms, PCM=${decoded.samples.size} éch.")
-
-        SynthesisResult(
-            samples = decoded.samples,
-            sampleRate = decoded.sampleRate,
-            text = text,
-            voiceLabel = voiceDisplayName(voice),
-            synthesisTimeMs = totalMs,
-            audioDurationMs = durationMs,
-            engineId = "edge"
-        )
+        // Ne devrait jamais arriver (la boucle throw au dernier tour)
+        throw lastException ?: IllegalStateException("Échec Edge TTS inattendu")
     }
 
     /**

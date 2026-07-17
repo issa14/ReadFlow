@@ -6,6 +6,7 @@ import com.readflow.data.database.entity.ReadingProgress
 import com.readflow.domain.model.Sentence
 import com.readflow.domain.model.SynthesisResult
 import com.readflow.domain.repository.TtsRepository
+import com.readflow.service.edge.EdgeTtsClient
 import com.readflow.service.onnx.OnnxInferenceService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -412,18 +413,14 @@ class PlaybackOrchestrator @Inject constructor(
                 } catch (e: CancellationException) { break }
                 catch (e: Exception) {
                     Log.e(TAG, "Synthesis error sentence $idx: ${e.message}", e)
-                    // Erreur réseau fatale : arrêter le pipeline, ne pas spammer
-                    val msg = e.message ?: ""
-                    if (msg.contains("Unable to resolve host") ||
-                        msg.contains("No address associated") ||
-                        msg.contains("timeout") ||
-                        msg.contains("connect timed out") ||
-                        msg.contains("Réseau indisponible")) {
-                        Log.w(TAG, "Erreur réseau fatale → arrêt du pipeline de synthèse")
+                    // Erreur réseau persistante (après retry Edge + fallback Piper) → arrêter
+                    if (EdgeTtsClient.isNetworkError(e)) {
+                        Log.w(TAG, "Erreur réseau persistante → arrêt du pipeline de synthèse")
                         _state.value = State.Error("Réseau perdu — la lecture s'est interrompue")
                         _playbackState.update { it.copy(status = PlaybackStatus.IDLE) }
                         break
                     }
+                    // Autres erreurs (ex: échec décodage) → passer à la phrase suivante
                 }
             }
         } finally {
