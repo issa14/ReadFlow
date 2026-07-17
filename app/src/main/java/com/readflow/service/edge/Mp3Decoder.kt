@@ -106,6 +106,9 @@ class Mp3Decoder @Inject constructor() {
 
     /**
      * Décode toutes les trames audio du flux MP3 en [ShortArray].
+     *
+     * Pattern MediaCodec correct : boucle sur `outputDone`
+     * (et non sur `outputBuffers.isNotEmpty()` qui cause une boucle infinie).
      */
     private fun decodeToShortArray(
         extractor: MediaExtractor,
@@ -113,49 +116,65 @@ class Mp3Decoder @Inject constructor() {
     ): ShortArray {
         val bufferInfo = MediaCodec.BufferInfo()
         val outputBuffers = mutableListOf<Short>()
-
         var inputDone = false
+        var outputDone = false
+        var chunkCount = 0
+        var totalBytesFed = 0
 
-        while (!inputDone || outputBuffers.isNotEmpty()) {
-            // Alimenter le décodeur
+        while (!outputDone) {
+            // ── Alimenter le décodeur ──
             if (!inputDone) {
                 val inputIndex = codec.dequeueInputBuffer(TIMEOUT_US)
                 if (inputIndex >= 0) {
                     val inputBuffer = codec.getInputBuffer(inputIndex)!!
                     val sampleSize = extractor.readSampleData(inputBuffer, 0)
                     if (sampleSize < 0) {
-                        // Fin du flux d'entrée
+                        Log.d(TAG, "TtsDebug | queueInputBuffer: EOS (fin du flux MP3, $totalBytesFed octets injectés)")
                         codec.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                         inputDone = true
                     } else {
+                        totalBytesFed += sampleSize
+                        Log.d(TAG, "TtsDebug | queueInputBuffer: $sampleSize octets (total=$totalBytesFed)")
                         codec.queueInputBuffer(inputIndex, 0, sampleSize, extractor.sampleTime, 0)
                         extractor.advance()
                     }
                 }
             }
 
-            // Récupérer la sortie décodée
+            // ── Récupérer la sortie décodée ──
             val outputIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
             when {
                 outputIndex >= 0 -> {
-                    val outputBuffer = codec.getOutputBuffer(outputIndex)!!
-                    // Lire les shorts (PCM 16-bit)
-                    val shortCount = bufferInfo.size / 2
-                    val shortBuf = ShortArray(shortCount)
-                    outputBuffer.position(bufferInfo.offset)
-                    outputBuffer.asShortBuffer().get(shortBuf)
-                    outputBuffers.addAll(shortBuf.toList())
+                    // Vérifier le flag EOS en sortie
+                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                        Log.d(TAG, "TtsDebug | dequeueOutputBuffer: EOS reçu, décodage terminé ($chunkCount chunks PCM)")
+                        outputDone = true
+                    }
+                    if (bufferInfo.size > 0) {
+                        chunkCount++
+                        val outputBuffer = codec.getOutputBuffer(outputIndex)!!
+                        val shortCount = bufferInfo.size / 2
+                        val shortBuf = ShortArray(shortCount)
+                        outputBuffer.position(bufferInfo.offset)
+                        outputBuffer.asShortBuffer().get(shortBuf)
+                        outputBuffers.addAll(shortBuf.toList())
+                        Log.d(TAG, "TtsDebug | dequeueOutputBuffer: chunk #$chunkCount → ${shortCount} shorts PCM (${bufferInfo.size} octets)")
+                    }
                     codec.releaseOutputBuffer(outputIndex, false)
                 }
                 outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    // Format changé, on ignore (déjà configuré)
+                    Log.d(TAG, "TtsDebug | dequeueOutputBuffer: INFO_OUTPUT_FORMAT_CHANGED")
                 }
                 outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
-                    if (inputDone) break // plus rien à décoder
+                    // Pas de sortie dispo, on réessaie
+                }
+                else -> {
+                    Log.w(TAG, "TtsDebug | dequeueOutputBuffer: code inattendu $outputIndex")
                 }
             }
         }
 
+        Log.i(TAG, "TtsDebug | Décodage terminé: $chunkCount chunks → ${outputBuffers.size} shorts PCM (${totalBytesFed} octets MP3)")
         return outputBuffers.toShortArray()
     }
 }

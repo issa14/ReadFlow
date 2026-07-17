@@ -97,6 +97,7 @@ class GaplessAudioPlayer @Inject constructor() {
      * même si le consommateur est arrêté.
      */
     fun enqueue(samples: FloatArray) {
+        Log.d(TAG, "TtsDebug | enqueue: ${samples.size} samples PCM (gain=${"%.1f".format(GAIN_MULTIPLIER)}x)")
         queue.add(samples)
         queueSemaphore.release()
     }
@@ -241,23 +242,25 @@ class GaplessAudioPlayer @Inject constructor() {
             shortSamples[i] = pcmSample.coerceIn(-32768, 32767).toShort()
         }
 
+        var totalWritten = 0
         val chunkSize = 4096
         var offset = 0
         while (offset < n && _state.value == State.Playing) {
             val len = minOf(chunkSize, n - offset)
             writeLock.lock()
             try {
-                // Re-vérifier que le track n'a pas été libéré entre-temps
                 val t = track ?: break
                 val written = t.write(shortSamples, offset, len)
                 if (written < 0) {
                     Log.e(TAG, "AudioTrack write error: $written")
                     break
                 }
+                totalWritten += written
                 offset += written
             } finally {
                 writeLock.unlock()
             }
         }
+        Log.d(TAG, "TtsDebug | AudioTrack.write: $totalWritten shorts écrits / $n total (${"%.1f".format(totalWritten * 100f / n)}%)")
     }
 }

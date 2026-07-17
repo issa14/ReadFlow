@@ -404,6 +404,9 @@ class PlaybackOrchestrator @Inject constructor(
                 try {
                     val result = ttsRepository.synthesize(sentences[idx].text, voice, speed)
                     sentenceDurations[idx] = result.audioDurationMs
+                    Log.d(TAG, "TtsDebug | synthèse OK: sentence $idx, engine=${result.engineId}, " +
+                        "voice=${result.voiceLabel}, samples=${result.samples.size}, " +
+                        "sr=${result.sampleRate}, dur=${result.audioDurationMs}ms, rtf=${result.realTimeFactor}")
                     buffer.send(result)
                 } catch (e: CancellationException) { break }
                 catch (e: Exception) {
@@ -428,6 +431,7 @@ class PlaybackOrchestrator @Inject constructor(
             if (currentJob?.isActive != true || (_state.value != State.Playing && _state.value != State.Loading)) break
 
             player.enqueue(result.samples)
+            Log.d(TAG, "TtsDebug | player.enqueue: ${result.samples.size} samples PCM, engine=${result.engineId}")
             val silenceMs = silenceDurationFor(result.text)
             val silenceLen = (result.sampleRate * silenceMs / 1000)
                 .coerceAtMost(GaplessAudioPlayer.SILENCE_BUFFER.size)

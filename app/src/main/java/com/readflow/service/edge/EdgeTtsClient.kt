@@ -13,9 +13,11 @@ import kotlinx.coroutines.withTimeout
 import okhttp3.*
 import okio.ByteString
 import java.io.ByteArrayOutputStream
+import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.floor
 
 /**
  * Client WebSocket pour le service Microsoft Edge TTS (gratuit, cloud).
@@ -44,7 +46,16 @@ class EdgeTtsClient @Inject constructor(
         /** Token de confiance pour l'API Edge TTS (non-officielle). */
         private const val TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
 
-        /** Endpoint WebSocket Microsoft Edge TTS. */
+        /** Version du protocole DRM (extraite de edge-tts v7.2.8). */
+        private const val SEC_MS_GEC_VERSION = "1-143.0.3650.75"
+
+        /**
+         * Écart en secondes entre l'epoch Unix (1970-01-01) et
+         * l'epoch Windows FILETIME (1601-01-01).
+         */
+        private const val WIN_EPOCH_SECONDS = 11_644_473_600L
+
+        /** Endpoint WebSocket Microsoft Edge TTS (base). */
         private const val WS_BASE =
             "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
             "?TrustedClientToken=$TRUSTED_CLIENT_TOKEN"
@@ -67,11 +78,51 @@ class EdgeTtsClient @Inject constructor(
                 .replace("\"", "&quot;")
                 .replace("'", "&apos;")
 
-            // Edge TTS attend un rate sous forme de pourcentage (ex: "+0%", "-50%", "+100%")
             val ratePercent = ((speed - 1.0f) * 100).toInt()
             val rateStr = if (ratePercent >= 0) "+$ratePercent%" else "$ratePercent%"
 
             return """<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="fr-FR"><voice name="$voiceName"><prosody rate="$rateStr" pitch="+0Hz">$escaped</prosody></voice></speak>"""
+        }
+
+        /**
+         * Génère le token [Sec-MS-GEC] requis par l'authentification DRM Edge.
+         *
+         * Algorithme (compatible edge-tts Python v7.2.8) :
+         * 1. Timestamp Unix courant → ajouter l'offset Windows FILETIME
+         * 2. Arrondir à la tranche de 5 minutes (fenêtre de validité)
+         * 3. Convertir en intervalles de 100 nanosecondes (×10^7)
+         * 4. SHA256("{ticks}{TrustedClientToken}") en hex uppercase
+         */
+        fun generateSecMsGec(): String {
+            // 1. Unix timestamp (secondes)
+            val nowSeconds = System.currentTimeMillis() / 1000.0
+
+            // 2. Convertir en Windows FILETIME (secondes depuis 1601-01-01)
+            val winSeconds = nowSeconds + WIN_EPOCH_SECONDS
+
+            // 3. Arrondir à la tranche de 5 minutes inférieure
+            val rounded = floor(winSeconds / 300.0) * 300.0
+
+            // 4. Convertir en 100-nanosecond intervals (×10^7)
+            val ticks = (rounded * 10_000_000).toLong()
+
+            // 5. SHA256("{ticks}{token}") → hex uppercase
+            val input = "${ticks}${TRUSTED_CLIENT_TOKEN}"
+            val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.US_ASCII))
+            return digest.joinToString("") { "%02x".format(it) }.uppercase()
+        }
+
+        /**
+         * Génère un MUID aléatoire (32 caractères hex, uppercase) pour le cookie.
+         */
+        fun generateMuid(): String {
+            val bytes = ByteArray(16)
+            // Simple PRNG — pas besoin de crypto-grade pour un cookie de tracking
+            for (i in bytes.indices) {
+                bytes[i] = ((System.nanoTime() shr (i * 4)) and 0xFF).toByte()
+            }
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+            return digest.take(16).joinToString("") { "%02x".format(it) }.uppercase()
         }
     }
 
@@ -154,24 +205,38 @@ class EdgeTtsClient @Inject constructor(
         val deferred = CompletableDeferred<ByteArray>()
 
         val connectId = UUID.randomUUID().toString().replace("-", "")
-        val wsUrl = "$WS_BASE&ConnectionId=$connectId"
+        val secMsGec = generateSecMsGec()
+        val wsUrl = "$WS_BASE&ConnectionId=$connectId&Sec-MS-GEC=$secMsGec&Sec-MS-GEC-Version=$SEC_MS_GEC_VERSION"
+
+        val muid = generateMuid()
 
         val request = Request.Builder()
             .url(wsUrl)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0")
+            .header("Accept-Encoding", "gzip, deflate, br, zstd")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Pragma", "no-cache")
+            .header("Cache-Control", "no-cache")
             .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
-            .header("Accept-Encoding", "gzip, deflate, br")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0")
+            .header("Sec-WebSocket-Version", "13")
+            .header("X-Speech-API-Audio-Format", "audio-24khz-48kbitrate-mono-mp3")
+            .header("Cookie", "muid=$muid")
             .build()
+
+        Log.d(TAG, "TtsDebug | WebSocket → connexion à $wsUrl")
+        Log.d(TAG, "TtsDebug | Sec-MS-GEC=$secMsGec, muid=$muid")
 
         val listener = object : WebSocketListener() {
             private val audioChunks = ByteArrayOutputStream()
-            private var audioStarted = false
+            private var binaryChunkCount = 0
+            private var totalBytes = 0
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "WebSocket ouvert — envoi config + SSML")
-                // Trame de configuration
+                Log.d(TAG, "TtsDebug | WebSocket ouvert — envoi config + SSML")
+                // Trame de configuration (format exact edge-tts Python)
                 val configUuid = UUID.randomUUID().toString().replace("-", "")
-                val configBody = """{"context":{"system":{"name":"SpeechSDK","version":"1.19.0","build":"20220101","lang":"fr-FR"},"os":{"platform":"Android","name":"Android"}}}"""
+                val configBody = """{"context":{"system":{"name":"SpeechSDK","version":"1.19.0","build":"20220101","lang":"fr-FR"},"os":{"platform":"Android","name":"Android"},"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}"""
+                Log.d(TAG, "TtsDebug | config → $configBody")
                 webSocket.send(
                     "X-RequestId:$configUuid\r\n" +
                     "Content-Type:application/json; charset=utf-8\r\n" +
@@ -181,6 +246,7 @@ class EdgeTtsClient @Inject constructor(
 
                 // Trame SSML (synthèse)
                 val ssmlUuid = UUID.randomUUID().toString().replace("-", "")
+                Log.d(TAG, "TtsDebug | SSML → ${ssml.take(200)}...")
                 webSocket.send(
                     "X-RequestId:$ssmlUuid\r\n" +
                     "Content-Type:application/ssml+xml\r\n" +
@@ -190,31 +256,33 @@ class EdgeTtsClient @Inject constructor(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                Log.d(TAG, "TtsDebug | onMessage(text): ${text.take(120)}")
                 // Vérifier si c'est la trame de fin
                 if (text.contains("Path:turn.end")) {
-                    Log.d(TAG, "Turn.end reçu — ${audioChunks.size()} octets audio")
+                    Log.d(TAG, "TtsDebug | Turn.end reçu — $binaryChunkCount chunks binaires, $totalBytes octets audio")
                     webSocket.close(1000, "OK")
                     deferred.complete(audioChunks.toByteArray())
                 } else if (text.contains("Path:audio")) {
-                    audioStarted = true
-                    Log.d(TAG, "Début flux audio MP3")
+                    Log.d(TAG, "TtsDebug | Path:audio reçu (début flux MP3)")
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                if (audioStarted) {
-                    audioChunks.write(bytes.toByteArray())
-                }
+                binaryChunkCount++
+                totalBytes += bytes.size
+                Log.d(TAG, "TtsDebug | onMessage(binary): chunk #$binaryChunkCount, ${bytes.size} octets (total=$totalBytes)")
+                audioChunks.write(bytes.toByteArray())
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket failure: ${t.message}", t)
+                Log.e(TAG, "TtsDebug | WebSocket failure: ${t.message} (response=$response)", t)
                 deferred.completeExceptionally(
                     IllegalStateException("Edge TTS: échec WebSocket — ${t.message}", t)
                 )
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "TtsDebug | WebSocket fermé (code=$code, reason=$reason)")
                 if (!deferred.isCompleted) {
                     deferred.completeExceptionally(
                         IllegalStateException("Edge TTS: WebSocket fermé inopinément (code=$code)")
