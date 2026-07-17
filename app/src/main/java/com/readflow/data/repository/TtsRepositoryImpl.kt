@@ -8,6 +8,7 @@ import com.readflow.domain.provider.TtsProvider
 import com.readflow.domain.repository.TtsRepository
 import com.readflow.service.audio.AudioCacheManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -62,58 +63,69 @@ class TtsRepositoryImpl @Inject constructor(
     /**
      * Résout le provider TTS actif à partir des préférences utilisateur.
      *
+     * Lit [SettingsRepository.ttsEngine] (DataStore) pour déterminer
+     * le moteur sélectionné par l'utilisateur.
+     *
      * Stratégie de fallback :
-     * 1. Lit le moteur sélectionné dans DataStore (défaut "piper")
-     * 2. Si le moteur est trouvé ET disponible → retourne
-     * 3. Sinon, cherche le premier provider disponible (fallback automatique)
-     * 4. En dernier recours, retourne le provider "piper" (même si indisponible)
+     * 1. Cache valide → retourne immédiatement
+     * 2. Lit le moteur sélectionné dans DataStore (défaut "piper")
+     * 3. Si le moteur est trouvé ET disponible → retourne
+     * 4. Sinon, cherche le premier provider disponible
+     * 5. En dernier recours, retourne "piper" (même indisponible)
      */
-    private fun resolveProvider(): TtsProvider {
-        // Utiliser le cache si valide
+    private suspend fun resolveProvider(): TtsProvider {
+        // Cache valide : le provider est déjà sélectionné et disponible
         val cached = cachedProvider
         val cachedId = cachedEngineId
         if (cached != null && cachedId != null && cached.isAvailable) {
             return cached
         }
 
-        // NOTE: la lecture de DataStore dans un contexte non-suspend n'est pas possible.
-        // On utilise un provider "piper" par défaut, et on laisse la logique de sélection
-        // fine se faire au niveau UI (SettingsViewModel), qui appellera synthesize() avec
-        // le bon provider via la méthode getEngine().
-        //
-        // Pour synthesize(), on priorise :
-        // 1. Piper (local, toujours disponible si modèle chargé)
-        // 2. Premier provider disponible
-        // 3. Piper même si indisponible (l'erreur sera propagée proprement)
+        // Lire le moteur sélectionné dans DataStore
+        val selectedEngineId = settingsRepository.ttsEngine.first()
 
-        val provider = providers.find { it.engineId == DEFAULT_ENGINE && it.isAvailable }
-            ?: providers.firstOrNull { it.isAvailable }
+        // Chercher le provider correspondant
+        val selected = providers.find { it.engineId == selectedEngineId && it.isAvailable }
+        if (selected != null) {
+            Log.d(TAG, "Provider sélectionné: $selectedEngineId (disponible)")
+            cachedProvider = selected
+            cachedEngineId = selectedEngineId
+            return selected
+        }
+
+        // Fallback : premier provider disponible, sinon piper
+        val fallback = providers.firstOrNull { it.isAvailable }
             ?: providers.find { it.engineId == DEFAULT_ENGINE }
             ?: providers.first()
 
-        cachedProvider = provider
-        cachedEngineId = provider.engineId
-        return provider
+        if (fallback.engineId != selectedEngineId) {
+            Log.w(TAG, "Provider '$selectedEngineId' indisponible → fallback sur '${fallback.engineId}'")
+        }
+
+        cachedProvider = fallback
+        cachedEngineId = fallback.engineId
+        return fallback
     }
 
     /**
      * Convertit l'ancien identifiant numérique [voice] (sid Piper)
      * en identifiant string utilisé par les providers.
      *
-     * Pour le provider Piper : convertit le sid en nom de voix.
-     * Pour les autres providers : utilise la première voix disponible
-     * ou celle configurée dans les paramètres.
+     * Pour Piper : convertit le sid en nom de voix.
+     * Pour Edge  : lit [SettingsRepository.edgeVoice] depuis DataStore.
      */
-    private fun resolveVoiceId(provider: TtsProvider, voice: Int): String {
+    private suspend fun resolveVoiceId(provider: TtsProvider, voice: Int): String {
         return when (provider.engineId) {
             "piper" -> {
                 val voiceEnum = com.readflow.service.onnx.OnnxInferenceService.Voice.entries
                     .find { it.sid == voice }
                 voiceEnum?.name?.lowercase() ?: provider.availableVoices.first().id
             }
+            "edge" -> {
+                // Lire la voix Edge sélectionnée dans DataStore
+                settingsRepository.edgeVoice.first()
+            }
             else -> {
-                // Pour les providers cloud (Edge, etc.), utiliser la première voix
-                // ou celle stockée dans les settings (géré via SettingsViewModel)
                 provider.availableVoices.firstOrNull()?.id ?: "fr-FR-VivienneNeural"
             }
         }
