@@ -171,6 +171,16 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, importProgress = 0f, importStatus = "Préparation de l'import...") }
             try {
+                // Persister la permission SAF pour les réimports futurs
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: SecurityException) {
+                    // Permission non persistable (ex: URI temporaire) — on continue
+                }
+
                 val fileName = resolveFileName(uri) ?: "inconnu.epub"
                 context.contentResolver.openInputStream(uri)?.use { stream ->
                     bookRepository.importEpub(stream, fileName) { progress, status ->

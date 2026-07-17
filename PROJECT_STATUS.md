@@ -76,7 +76,7 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 | 3.7 | Réglages TTS dans le panneau (vitesse, voix) | ✅ Fait | 🟡 | Intégré au UnifiedControlPanel |
 | 3.8 | `BookmarkScreen` — Gestion signets | ✅ Fait | 🟡 | BookmarkScreen + BookmarkViewModel + BookmarkDao |
 | 3.9 | Thèmes : Nuit, Jour, Sépia | ✅ Fait | 🟢 | cycleTheme() + Material 3 |
-| 3.10 | Police OpenDyslexic | 🔄 Partiel | 🟢 | UI toggle OK, binaire OTF manquant (fallback Serif) |
+| 3.10 | Police OpenDyslexic | ✅ Fait | 🟢 | OTF téléchargé (171 Ko), intégré via Font(R.font.opendyslexic_regular) |
 | 3.11 | Tests UI + capture screenshots | ⬜ À faire | 🟡 | — |
 
 ### Phase 4 — Edge TTS & Robustesse ✅ (2026-07-17)
@@ -100,12 +100,12 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 | 5.1 | Profilage CPU/Batterie (Android Profiler) | ✅ Fait | 🔴 | RTF ~0.24, RAM ~150 Mo, APK 120 Mo debug / 106 Mo release |
 | 5.2 | FTS5 `sentence_fts` — recherche in-book | ✅ Fait | 🔴 | FTS4 virtual table, SearchScreen avec wildcard MATCH |
 | 5.3 | Process Death : `SavedStateHandle` + restoration | ✅ Fait | 🔴 | Sauvegarde chapter/sentence/voice/theme/font |
-| 5.4 | Gestion EPUB corrompus / erreurs parsing | ⬜ À faire | 🟡 | — |
-| 5.5 | SAF : persistence permissions + réimport | ⬜ À faire | 🟡 | — |
+| 5.4 | Gestion EPUB corrompus / erreurs parsing | ✅ Fait | 🟡 | try/catch avec messages explicites + nettoyage fichiers |
+| 5.5 | SAF : persistence permissions + réimport | ✅ Fait | 🟡 | takePersistableUriPermission() dans importEpub() |
 | 5.6 | ProGuard/R8 config (ONNX + Sherpa + Readium) | ✅ Fait | 🔴 | Règles complètes — build release OK (106 Mo) |
 | 5.7 | Backup/Restore données (bookmarks, progrès) | ⬜ À faire | 🟡 | — |
-| 5.8 | Accessibilité : TalkBack, tailles min/max | ⬜ À faire | 🟡 | — |
-| 5.9 | Vérification licences (Sherpa, Readium, ONNX) | ⬜ À faire | 🟡 | — |
+| 5.8 | Accessibilité : TalkBack, tailles min/max | ✅ Fait | 🟡 | contentDescription sur contrôles critiques + OpenDyslexic |
+| 5.9 | Vérification licences (Sherpa, Readium, ONNX) | ✅ Fait | 🟡 | THIRD_PARTY_NOTICES.md (Apache 2.0, MIT, BSD, SIL OFL, EPL) |
 | 5.10 | Build signed APK / AAB release | ✅ Fait | 🔴 | Keystore généré, release 106 Mo signé |
 | 5.11 | Beta fermée — 10-20 lecteurs francophones | ⬜ À faire | 🔴 | — |
 | 5.12 | Publication Play Store (internal testing) | ⬜ À faire | 🔴 | — |

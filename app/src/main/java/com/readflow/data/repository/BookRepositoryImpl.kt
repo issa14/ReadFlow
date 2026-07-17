@@ -80,7 +80,15 @@ class BookRepositoryImpl @Inject constructor(
             epubFile.outputStream().use { inputStream.copyTo(it) }
 
             onProgress(0.12f, "Analyse de la structure de l'EPUB...")
-            val publication = openPublication(epubFile)
+            val publication = try {
+                openPublication(epubFile)
+            } catch (e: Exception) {
+                // Nettoyer les fichiers partiellement copiés
+                epubDir.deleteRecursively()
+                throw IllegalStateException(
+                    "Fichier EPUB corrompu ou illisible : ${e.message?.take(100) ?: "erreur inconnue"}"
+                )
+            }
 
             onProgress(0.20f, "Lecture des métadonnées...")
             val title = publication.metadata.localizedTitle?.string
@@ -188,7 +196,13 @@ class BookRepositoryImpl @Inject constructor(
 
             // 2. Cache froid : extraction + segmentation classiques
             Log.d("BookRepo", "Cache MISS — segmentation pour bookId=$bookId ch=$chapterIndex")
-            val publication = openPublication(epubFile)
+            val publication = try {
+                openPublication(epubFile)
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Impossible d'ouvrir le chapitre ${chapterIndex + 1} : fichier EPUB endommagé"
+                )
+            }
             val link = publication.readingOrder.getOrNull(chapterIndex)
                 ?: throw IllegalStateException("Chapitre $chapterIndex introuvable")
 

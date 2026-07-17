@@ -13,6 +13,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,7 +71,10 @@ fun UnifiedControlPanel(
                         tint = Color.White.copy(alpha = 0.6f))
                 }
                 // OpenDyslexic Quick Toggle
-                IconButton(onClick = onFontToggle) {
+                IconButton(
+                    onClick = onFontToggle,
+                    modifier = Modifier.semantics { contentDescription = "Police OpenDyslexic" }
+                ) {
                     Text("D",
                         color = if (useOpenDyslexic) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
                         fontSize = 16.sp, fontWeight = FontWeight.Bold)
