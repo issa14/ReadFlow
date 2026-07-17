@@ -16,17 +16,18 @@
 
 Le surlignage dynamique **mot-à-mot** synchronisé avec la voix permet une expérience de lecture immersive unique.
 
-### ✨ Fonctionnalités clés (cibles)
+### ✨ Fonctionnalités clés
 
-- 📚 **Lecture EPUB2 & EPUB3** — Import local via fichier, parsing robuste
-- 🗣️ **TTS neuronal local** — Voix française (Piper VITS via Sherpa-ONNX, 100% offline)
+- 📚 **Lecture EPUB2 & EPUB3** — Import local via fichier, parsing robuste (Readium)
+- 🗣️ **Double moteur TTS** — Piper VITS local (100% offline) + Microsoft Edge cloud (gratuit)
+- 🔄 **Fallback automatique** — Bascule Edge→Piper en cas de perte réseau, sans interruption
 - 🎯 **Surlignage phrase par phrase** — Synchronisation audio ↔ texte en temps réel
 - 🎛️ **Contrôles de lecture avancés** — Vitesse, voix, navigation phrase par phrase
-- 🌓 **Thèmes multiples** — Clair, sépia, sombre + police OpenDyslexic
+- ⏯️ **Pause/Reprise instantanée** — <50ms, pipeline maintenue en vie (pas de redémarrage)
+- 🌓 **Thèmes multiples** — Clair, sépia, sombre
 - 🔖 **Signets & progression** — Sauvegarde automatique, reprise exacte
-- 🔍 **Recherche full-text** — Dans le livre courant
-- 🎧 **Background audio** — Notification lockscreen, contrôle lecture
-- 📱 **Android 14+** — Material 3, edge-to-edge, OpenDyslexic
+- 🎧 **Background audio** — Notification lockscreen, contrôle lecture (Media3)
+- 📱 **Android 8+** — Material 3, edge-to-edge
 
 ---
 
@@ -48,8 +49,8 @@ Voir le document complet : **[📄 ARCHITECTURE.md](./architecture.md)**
 | **DI** | Hilt 2.51.1 |
 | **Base de données** | Room 2.6.1 |
 | **Parser EPUB** | Readium Kotlin Toolkit 3.0.0 |
-| **Moteur TTS** | Sherpa-ONNX 1.13.4 / Piper VITS (fr_FR-miro-high) |
-| **Audio** | AudioTrack PCM 16-bit 22050 Hz, gapless |
+| **Moteurs TTS** | Sherpa-ONNX 1.13.4 / Piper VITS (local) + Microsoft Edge TTS (cloud) |
+| **Audio** | AudioTrack PCM 16-bit, gapless, pause/reprise <50ms |
 | **Background** | MediaSessionService (Media3 1.4.1) |
 
 ---

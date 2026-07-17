@@ -87,20 +87,24 @@ data class ReaderState(
 * **`ParseEpubUseCase` :** Dézippe l'archive `.epub`, extrait le manifeste (`content.opf`), trie le `spine` (ordre de lecture), convertit le HTML/XHTML en texte brut structuré en conservant les métadonnées de position (paragraphe, offset caractère). **Utilise Readium Kotlin Toolkit.**
 * **`ChunkTextUseCase` :** Découpe le texte en phrases via un segmenteur NLP (OpenNLP ou règles custom pour le français). Gère les cas complexes : dialogues (`« »`), abréviations (`M.`, `Dr.`, `etc.`), ellipses (`...`), points de suspension. Une phrase > 500 caractères est sous-découpée aux virgules ou conjonctions.
 * **`SynthesizeUseCase` :** Ordonnance l'inférence ONNX pour une phrase donnée. Retourne un `Flow<SynthesisResult>` contenant le fichier WAV + les timestamps mot/milliseconde.
-* **`PlaybackOrchestrator` :** Le chef d'orchestre. Maintient un buffer de **3 phrases d'avance** (N+1, N+2, N+3). Pipeline **100% asynchrone** — si une phrase n'est pas prête à temps : silence court (50ms) + skip propre, pas de blocage.
+* **`PlaybackOrchestrator` :** Le chef d'orchestre. Maintient un buffer de **3 phrases d'avance** (Channel-based). Pipeline consommateur/producteur avec `consumeAndPlay` qui **attend sur pause** (ne break pas) pour une reprise instantanée. Protégé par `ReentrantLock` contre les race conditions UI/AudioFocus/notification. Gestion erreurs réseau avec classification par type d'exception (`isNetworkError`).
 * **`SyncHighlightUseCase` :** Corrèle les timestamps audio avec la position dans le texte pour le surlignage.
 * **`SearchBookUseCase` :** Recherche full-text dans un livre (FTS5 via Room).
 
 ### D. Data Layer — Repositories
 * **`BookRepository` :** Interface dans le domain, implémentation dans `data/`. Gère l'import (copie du fichier `.epub` vers le sandbox), le parsing, la persistence dans Room.
-* **`TtsRepository` :** Interface d'inférence. L'implémentation appelle le service ONNX via JNI.
+* **`TtsRepository` :** Interface de synthèse vocale. L'implémentation (`TtsRepositoryImpl`) agit comme un **routeur** entre les providers TTS disponibles (pattern Strategy multi-moteurs).
+* **`TtsProvider` :** Interface de provider TTS (pattern Strategy). Chaque moteur est un provider indépendant :
+    * **`PiperTtsProvider`** — moteur ONNX local Sherpa-ONNX / Piper VITS
+    * **`EdgeTtsProvider`** — moteur cloud Microsoft Edge TTS (gratuit, via WebSocket)
 * **`ProgressRepository` :** Sauvegarde/Restauration de la progression de lecture (chapitre, phrase, offset) dans Room.
 * **`ModelRepository` :** Gère le téléchargement, la vérification (SHA256) et le stockage du modèle ONNX français.
 
 ### E. Native Services — Android
-* **`OnnxInferenceService` :** Moteur d'inférence ONNX Runtime Mobile exécuté via JNI/NDK dans un thread dédié. Utilise **Sherpa-ONNX** (modèle VITS français, ~50-80 Mo) qui fournit **nativement** les timestamps mot/milliseconde — éliminant le besoin de post-traitement.
-* **`PhonemizationPipeline` :** Prétraitement obligatoire : texte brut → nettoyage → phonémisation française (liaisons, muets) → tenseur d'entrée ONNX. Utilise `piper-phonemize` compilé pour Android NDK, ou le tokenizer intégré de Sherpa-ONNX.
-* **`AudioPlaybackService` :** `MediaSessionService` (Media3) — pas un simple `Service`. Lecture audio gapless via **`AudioTrack`** (PCM 16-bit 22.05 kHz mono) avec buffer circulaire. Pas de gap entre les phrases. ExoPlayer conservé pour usages futurs (livres audio) mais pas pour le TTS phrase-par-phrase.
+* **`OnnxInferenceService` :** Moteur d'inférence ONNX Runtime Mobile exécuté via JNI/NDK. Utilise **Sherpa-ONNX** (modèle VITS français, ~64 Mo, voix Miro) avec RTF ~0.24.
+* **`EdgeTtsClient` :** Client WebSocket pour Microsoft Edge TTS (cloud, gratuit). Pipeline complet : authentification DRM (`Sec-MS-GEC`), SSML, réception MP3 binaire, décodage PCM. Retry exponentiel 3 tentatives + fallback automatique vers Piper en cas de perte réseau.
+* **`Mp3Decoder` :** Décodeur MP3→PCM via `MediaCodec` Android. Conversion `ShortArray`→`FloatArray` normalisée pour compatibilité avec le pipeline `GaplessAudioPlayer`.
+* **`AudioPlaybackService` :** `MediaSessionService` (Media3). Lecture audio gapless via **`AudioTrack`** (PCM 16-bit) avec `ReentrantLock` anti-use-after-free. Gestion pause/reprise instantanée (<50ms) avec pipeline de synthèse maintenue en vie.
 * **`AudioFocusManager` :** Respecte `AudioManager` — ducking lors des notifications, pause lors d'un appel, reprise après. Intégré au `MediaSession.Callback`.
 
 ---

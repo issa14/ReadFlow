@@ -9,12 +9,35 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Added
-- Architecture technique complète (`architecture.md`)
-- Suivi de projet (`PROJECT_STATUS.md`)
-- Présentation projet (`README.md`)
-- Configuration Git (`.gitignore`)
-- Phase 0 : Préparation du projet
+### 2026-07-17 — Feature Edge TTS + Refactoring Pause/Resume
+
+#### Added
+- **Moteur TTS Microsoft Edge** (cloud, gratuit) :
+  - `EdgeTtsClient` — WebSocket vers `speech.platform.bing.com` avec authentification DRM (`Sec-MS-GEC`)
+  - `Mp3Decoder` — décodage MP3→PCM via `MediaCodec` Android
+  - Voix françaises : `fr-FR-VivienneNeural` (défaut), `fr-FR-HenriNeural`
+- **Architecture Provider TTS** (pattern Strategy) :
+  - Interface `TtsProvider` avec `PiperTtsProvider` (ONNX local) et `EdgeTtsProvider` (cloud)
+  - `TtsRepositoryImpl` routeur avec fallback automatique Edge→Piper sur erreur réseau
+- **Sélecteur de moteur TTS** dans `SettingsScreen` (Piper ONNX / Microsoft Edge)
+- **Retry exponentiel** (3 tentatives : 500ms→1s→2s) sur erreurs réseau transitoires
+- **Classification d'erreurs par type** (`isNetworkError`) : `UnknownHostException`, `SocketTimeoutException`, `ConnectException`, `SocketException`
+- **Logging TtsDebug** de bout en bout : WebSocket chunks → MediaCodec → AudioTrack.write
+
+#### Changed
+- **Refactoring pause/resume** dans `PlaybackOrchestrator` :
+  - `ReentrantLock` pour atomicité des transitions pause/resume/stop
+  - `consumeAndPlay` attend sur pause (ne break pas) → reprise <50ms
+  - `ReaderViewModel.play()` après pause appelle `orchestrator.resume()` (plus de destruction/reconstruction)
+  - Boucle de tracking gère l'état Paused via `delay(200); continue`
+- `SynthesisResult` : ajout du champ `engineId` pour tracer l'origine
+- `TtsRepository` : nouvelles méthodes `getAvailableEngines()` et `getEngine()`
+
+#### Fixed
+- Boucle infinie dans `Mp3Decoder.decodeToShortArray` (condition `outputBuffers.isNotEmpty()`)
+- 403 Forbidden WebSocket : ajout des paramètres `Sec-MS-GEC` + `Sec-MS-GEC-Version` + headers complets
+- Chunks binaires ignorés (collecte inconditionnelle, suppression du flag `audioStarted`)
+- Pipeline zombie sur pause (le job de synthèse continuait sans consommateur)
 
 ### 2026-07-08 — Scaffold & Build initial
 - **Scaffold projet Android** : Gradle, Hilt, Room, Compose Navigation, Media3, ONNX Runtime

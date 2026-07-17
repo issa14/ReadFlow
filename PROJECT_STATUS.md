@@ -1,9 +1,9 @@
 # 📊 ReadFlow — Suivi d'Avancement Projet
 
-> Dernière mise à jour : 2026-07-09  
-> Phase actuelle : **Phase 3 — UI & Intégration (complétée) → Phase 4 — Polish & Release**  
-> Progression globale : **~75%**  
-> Modèle TTS : **Piper VITS `fr_FR-miro-high`** (Sherpa-ONNX 1.13.4, RTF ~0.24)
+> Dernière mise à jour : 2026-07-17  
+> Phase actuelle : **Phase 4 — Polish & Release**  
+> Progression globale : **~80%**  
+> Moteurs TTS : **Piper VITS `fr_FR-miro-high`** (local) + **Microsoft Edge TTS** (cloud, Vivienne & Henri)
 
 ---
 
@@ -78,6 +78,20 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 | 3.9 | Thèmes : Nuit, Jour, Sépia | ✅ Fait | 🟢 | cycleTheme() + Material 3 |
 | 3.10 | Police OpenDyslexic | ⬜ À faire | 🟢 | — |
 | 3.11 | Tests UI + capture screenshots | ⬜ À faire | 🟡 | — |
+
+### Phase 4 — Edge TTS & Robustesse ✅ (2026-07-17)
+
+| # | Tâche | Statut | Priorité | Notes |
+|---|---|---|---|---|
+| 4.1 | Architecture Provider TTS (pattern Strategy) | ✅ Fait | 🔴 | `TtsProvider` + `PiperTtsProvider` + `EdgeTtsProvider` |
+| 4.2 | Client WebSocket Microsoft Edge TTS | ✅ Fait | 🔴 | DRM `Sec-MS-GEC`, SSML, MP3→PCM |
+| 4.3 | Décodeur MP3 via `MediaCodec` | ✅ Fait | 🔴 | `Mp3Decoder`, conversion ShortArray→FloatArray |
+| 4.4 | Sélecteur moteur TTS dans Settings | ✅ Fait | 🔴 | Piper / Edge + voix Vivienne / Henri |
+| 4.5 | Retry exponentiel + fallback Edge→Piper | ✅ Fait | 🔴 | 3 tentatives, backoff 500ms→1s→2s |
+| 4.6 | Gestion erreurs réseau par type d'exception | ✅ Fait | 🔴 | `isNetworkError()` — UnknownHost, SocketTimeout, etc. |
+| 4.7 | Refactoring pause/resume (ReentrantLock) | ✅ Fait | 🔴 | Pipeline wait-on-pause, reprise <50ms |
+| 4.8 | Correction des 7 failles d'audit pause/resume | ✅ Fait | 🔴 | Zombie, double AudioTrack, use-after-free, latence |
+| 4.9 | Logging TtsDebug de bout en bout | ✅ Fait | 🟡 | WebSocket→MediaCodec→AudioTrack |
 
 ### Phase 4 — Optimisation, Robustesse & Release (Objectif : Semaines 17-20)
 
