@@ -41,10 +41,13 @@ class EdgeTtsClient @Inject constructor(
     companion object {
         private const val TAG = "EdgeTtsClient"
 
+        /** Token de confiance pour l'API Edge TTS (non-officielle). */
+        private const val TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
+
         /** Endpoint WebSocket Microsoft Edge TTS. */
-        private const val WS_URL =
+        private const val WS_BASE =
             "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
-            "?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4"
+            "?TrustedClientToken=$TRUSTED_CLIENT_TOKEN"
 
         /** Timeout de synthèse (ms). */
         private const val SYNTHESIS_TIMEOUT_MS = 15_000L
@@ -150,10 +153,14 @@ class EdgeTtsClient @Inject constructor(
     private suspend fun synthesizeViaWebSocket(ssml: String): ByteArray {
         val deferred = CompletableDeferred<ByteArray>()
 
+        val connectId = UUID.randomUUID().toString().replace("-", "")
+        val wsUrl = "$WS_BASE&ConnectionId=$connectId"
+
         val request = Request.Builder()
-            .url(WS_URL)
-            .header("Origin", "https://speech.platform.bing.com")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .url(wsUrl)
+            .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
+            .header("Accept-Encoding", "gzip, deflate, br")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0")
             .build()
 
         val listener = object : WebSocketListener() {
