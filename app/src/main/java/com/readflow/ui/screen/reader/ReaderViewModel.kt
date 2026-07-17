@@ -340,6 +340,14 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun play() {
+        // Reprise après pause : pas de destruction/reconstruction, reprise instantanée
+        if (isPausedForResume) {
+            isPausedForResume = false
+            orchestrator.resume()
+            _uiState.update { it.copy(isPlaying = true) }
+            return
+        }
+
         val chapter = _uiState.value.currentChapter ?: return
         val book = currentBook ?: return
         if (!audioServiceLauncher.canStart()) {
@@ -347,11 +355,9 @@ class ReaderViewModel @Inject constructor(
             return
         }
         audioServiceLauncher.start()
-        val startFrom = if (isPausedForResume) _uiState.value.currentSentenceIndex else 0
-        isPausedForResume = false
         val s = _uiState.value
         orchestrator.play(
-            chapter.sentences, voice = s.voice, speed = s.speed, startFrom = startFrom,
+            chapter.sentences, voice = s.voice, speed = s.speed, startFrom = 0,
             bookTitle = book.title, chapterTitle = chapter.title, bookId = book.id, chapterIndex = s.currentChapterIndex
         )
         _uiState.update { it.copy(isPlaying = true) }
