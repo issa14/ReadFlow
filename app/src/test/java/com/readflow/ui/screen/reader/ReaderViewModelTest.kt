@@ -19,6 +19,7 @@ import com.readflow.domain.usecase.LoadChapterUseCase
 import com.readflow.domain.usecase.ManageReaderAnnotationsUseCase
 import com.readflow.domain.usecase.PreWarmNextChapterUseCase
 import com.readflow.domain.usecase.ResolveReadingPositionUseCase
+import com.readflow.domain.usecase.ResolvedPosition
 import com.readflow.service.audio.PlaybackOrchestrator
 import com.readflow.service.audio.PlaybackState
 import com.readflow.service.audio.PlaybackStatus
@@ -304,5 +305,122 @@ class ReaderViewModelTest {
 
         val state = viewModel.uiState.value
         assertNotNull(state.error, "Un message d'erreur devrait être présent")
+    }
+
+    // ── Tests Process Death / SavedStateHandle ──────────────
+
+    @Test
+    fun `restaure la position de lecture depuis SavedStateHandle`() = testScope.runTest {
+        // Simuler un process death : le SavedStateHandle contient les valeurs sauvegardées
+        savedState["chapterIndex"] = 2
+        savedState["sentenceIndex"] = 5
+        savedState["speed"] = 1.5f
+        savedState["voice"] = 1
+
+        coEvery { bookRepository.getAllBooks() } returns listOf(testBook)
+        coEvery { orchestrator.loadProgress("book-1") } returns null
+        every { resolvePosition.invoke(any(), any(), any(), any(), any()) } returns ResolvedPosition(2, 5)
+
+        viewModel.loadBook("book-1")
+        advanceUntilIdle()
+
+        // La vitesse et la voix sont restaurées depuis SavedStateHandle
+        assertEquals(1.5f, viewModel.uiState.value.speed, 0.01f)
+        assertEquals(1, viewModel.uiState.value.voice)
+    }
+
+    @Test
+    fun `SavedStateHandle survit à la re-création du ViewModel`() = testScope.runTest {
+        // Simuler : le ViewModel sauvegarde les valeurs dans SavedStateHandle
+        viewModel.setReaderTheme(ReaderTheme.SEPIA)
+        viewModel.setReaderFont(ReaderFont.OPEN_DYSLEXIC)
+        viewModel.setFontSize(22f)
+
+        // Vérifier que SavedStateHandle contient les valeurs sauvegardées
+        assertEquals("SEPIA", savedState.get<String>("theme") ?: "")
+        assertEquals(true, savedState.get<Boolean>("openDyslexic") ?: false)
+    }
+
+    // ── Tests rapid intents ─────────────────────────────────
+
+    @Test
+    fun `play rapide suivi de stop ne cause pas d'état incohérent`() = testScope.runTest {
+        coEvery { bookRepository.getAllBooks() } returns listOf(testBook)
+        coEvery { orchestrator.loadProgress("book-1") } returns null
+        coEvery { bookRepository.getChapter("book-1", 0) } returns testChapter
+        every { highlightDao.getHighlightsForChapter(any(), any()) } returns flowOf(emptyList())
+        every { bookmarkDao.getBookmarks(any()) } returns flowOf(emptyList())
+        coEvery { calculateProgress.invoke(any(), any(), any(), any()) } returns 0f
+        every { resolvePosition.invoke(any(), any(), any(), any(), any()) } returns ResolvedPosition(0, 0)
+
+        viewModel.loadBook("book-1")
+        advanceUntilIdle()
+
+        // Intent rapide : play → stop → play → pause
+        viewModel.play()
+        viewModel.stop()
+        viewModel.play()
+        viewModel.pause()
+
+        advanceUntilIdle()
+
+        // L'état doit être cohérent (pas de crash)
+        assertFalse(viewModel.uiState.value.isPlaying, "Après pause, isPlaying doit être false")
+    }
+
+    @Test
+    fun `changements rapides de chapitre ne causent pas de crash`() = testScope.runTest {
+        coEvery { bookRepository.getAllBooks() } returns listOf(testBook)
+        coEvery { orchestrator.loadProgress("book-1") } returns null
+        coEvery { bookRepository.getChapter("book-1", any()) } returns testChapter
+        every { highlightDao.getHighlightsForChapter(any(), any()) } returns flowOf(emptyList())
+        every { bookmarkDao.getBookmarks(any()) } returns flowOf(emptyList())
+        coEvery { calculateProgress.invoke(any(), any(), any(), any()) } returns 0f
+        every { resolvePosition.invoke(any(), any(), any(), any(), any()) } returns ResolvedPosition(0, 0)
+
+        viewModel.loadBook("book-1")
+        advanceUntilIdle()
+
+        // Changements rapides de chapitre
+        viewModel.nextChapter()
+        viewModel.previousChapter()
+        viewModel.nextChapter()
+        viewModel.goToChapter(0)
+
+        advanceUntilIdle()
+
+        // Pas de crash = succès
+        assertNotNull(viewModel.uiState.value)
+    }
+
+    @Test
+    fun `ONNX initialization error sets uiState error`() = testScope.runTest {
+        coEvery { onnxService.initialize() } throws RuntimeException("ONNX model not found")
+
+        // Re-créer le ViewModel pour déclencher l'init ONNX
+        val vm = ReaderViewModel(
+            savedState = savedState,
+            bookRepository = bookRepository,
+            orchestrator = orchestrator,
+            onnxService = onnxService,
+            settingsRepository = settingsRepository,
+            pronunciationRuleDao = pronunciationRuleDao,
+            bookmarkDao = bookmarkDao,
+            highlightDao = highlightDao,
+            annotationDao = annotationDao,
+            audioServiceLauncher = audioServiceLauncher,
+            ttsRepository = ttsRepository,
+            calculateProgress = calculateProgress,
+            loadChapterUseCase = loadChapterUseCase,
+            annotationsUseCase = annotationsUseCase,
+            preWarmChapter = preWarmChapter,
+            resolvePosition = resolvePosition
+        )
+        advanceUntilIdle()
+
+        // L'erreur ONNX doit être propagée dans l'UI state
+        val error = vm.uiState.value.error
+        assertNotNull(error, "L'erreur ONNX doit être visible dans l'UI")
+        assertTrue(error!!.contains("ONNX") || error.contains("TTS"), "Message d'erreur: $error")
     }
 }

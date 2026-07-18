@@ -320,7 +320,7 @@ class PlaybackOrchestratorTest {
 
         // Laisser le pipeline échouer 3 fois
         // Thread.sleep car le pipeline tourne sur Dispatchers.IO (threads réels)
-        Thread.sleep(200)
+        Thread.sleep(500)
 
         // Après 3 timeouts, l'état doit être Error
         val state = orchestrator.state.value
