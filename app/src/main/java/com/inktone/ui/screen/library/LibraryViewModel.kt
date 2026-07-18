@@ -89,6 +89,7 @@ class LibraryViewModel @Inject constructor(
                 }
                 _uiState.update { it.copy(allBooks = books, bookProgress = progressMap, isLoading = false) }
                 applyFilters()
+                com.inktone.PerfLogger.logMemorySnapshot("Library loaded")
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
             }

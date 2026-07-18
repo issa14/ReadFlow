@@ -256,9 +256,15 @@ class ReaderViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            var firstAudioReported = false
             orchestrator.playbackState.collect { pbs ->
                 _uiState.update {
                     it.copy(currentSentenceIndex = pbs.activeSentenceIndex, totalSentences = pbs.totalSentences)
+                }
+                // Détecter la première sortie audio
+                if (!firstAudioReported && pbs.activeSentenceIndex == 0 && pbs.status == com.inktone.service.audio.PlaybackStatus.PLAYING) {
+                    firstAudioReported = true
+                    com.inktone.PerfLogger.markFirstAudioOutput(0)
                 }
                 // Persister la position pour Process Death
                 savedState["sentenceIndex"] = pbs.activeSentenceIndex
@@ -418,6 +424,7 @@ class ReaderViewModel @Inject constructor(
         audioServiceLauncher.start()
         Log.d(TAG, "DEBUG play() → service started, calling orchestrator.play()...")
         val s = _uiState.value
+        com.inktone.PerfLogger.markTtsPlayRequest()
         orchestrator.play(
             chapter.sentences, voice = s.voice, speed = s.speed, startFrom = 0,
             bookTitle = book.title, chapterTitle = chapter.title, bookId = book.id, chapterIndex = s.currentChapterIndex

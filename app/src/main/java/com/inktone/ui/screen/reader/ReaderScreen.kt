@@ -99,6 +99,13 @@ fun ReaderScreen(
             .background(bgColor)
             .onSizeChanged { screenSize = it }
     ) {
+        // Mesure mémoire après chargement chapitre
+        LaunchedEffect(chapter) {
+            if (chapter != null) {
+                com.inktone.PerfLogger.logMemorySnapshot("Reader open")
+            }
+        }
+
         // ── COUCHE 0 : Texte (100% espace, jamais ne bouge) ─
         Crossfade(targetState = state.readerTheme, animationSpec = tween(300)) {
         when {
