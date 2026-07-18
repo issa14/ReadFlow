@@ -30,6 +30,9 @@ data class SettingsUiState(
         EngineInfo("edge", "Microsoft Edge (cloud)", false)
     ),
     val availableEdgeVoices: List<String> = listOf("fr-FR-VivienneNeural", "fr-FR-HenriNeural"),
+    // Accessibilité
+    val reduceMotion: Boolean = false,
+    val respectSystemFontScale: Boolean = true,
     // Backup
     val backupMessage: String? = null
 )
@@ -63,6 +66,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) { repository.modelPath.collect { _uiState.update { s -> s.copy(modelPath = it) } } }
         viewModelScope.launch(Dispatchers.IO) { repository.ttsEngine.collect { _uiState.update { s -> s.copy(selectedEngine = it) } } }
         viewModelScope.launch(Dispatchers.IO) { repository.edgeVoice.collect { _uiState.update { s -> s.copy(selectedEdgeVoice = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.reduceMotion.collect { _uiState.update { s -> s.copy(reduceMotion = it) } } }
+        viewModelScope.launch(Dispatchers.IO) { repository.respectSystemFontScale.collect { _uiState.update { s -> s.copy(respectSystemFontScale = it) } } }
 
         // Charger les moteurs disponibles
         viewModelScope.launch(Dispatchers.IO) {
@@ -95,6 +100,9 @@ class SettingsViewModel @Inject constructor(
             repository.setEdgeVoice(voiceId)
         }
     }
+
+    fun setReduceMotion(enabled: Boolean) { viewModelScope.launch { repository.setReduceMotion(enabled) } }
+    fun setRespectSystemFontScale(enabled: Boolean) { viewModelScope.launch { repository.setRespectSystemFontScale(enabled) } }
 
     fun exportBackup(uri: Uri) {
         viewModelScope.launch {

@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.inktone.domain.model.Book
 import com.inktone.domain.repository.BookRepository
 import com.inktone.data.settings.AppTheme
+import com.inktone.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -35,7 +36,8 @@ data class LibraryUiState(
     val currentDestination: NavigationDestination = NavigationDestination.LIBRARY,
     val appTheme: AppTheme = AppTheme.PAPIER_ART,
     val importProgress: Float? = null,
-    val importStatus: String? = null
+    val importStatus: String? = null,
+    val importSuccessSnackbar: String? = null
 )
 
 enum class FilterMode { ALL, BY_AUTHOR, BY_TITLE, IN_PROGRESS, READ, UNREAD }
@@ -61,6 +63,7 @@ enum class NavigationDestination(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val bookRepository: BookRepository,
+    private val settingsRepository: SettingsRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -190,6 +193,11 @@ class LibraryViewModel @Inject constructor(
                 } ?: throw IllegalStateException("Impossible de lire le fichier")
                 _uiState.update { it.copy(importProgress = null, importStatus = null) }
                 loadBooks()
+                // Toast de succès pour le premier import
+                if (!settingsRepository.hasImportedFirstBook.first()) {
+                    settingsRepository.markFirstBookImported()
+                    _uiState.update { it.copy(importSuccessSnackbar = "✅ Livre importé — appuyez pour commencer la lecture") }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false, importProgress = null, importStatus = null) }
             }
@@ -206,6 +214,10 @@ class LibraryViewModel @Inject constructor(
                 }
                 _uiState.update { it.copy(importProgress = null, importStatus = null) }
                 loadBooks()
+                if (!settingsRepository.hasImportedFirstBook.first()) {
+                    settingsRepository.markFirstBookImported()
+                    _uiState.update { it.copy(importSuccessSnackbar = "✅ Livre importé — appuyez pour commencer la lecture") }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false, importProgress = null, importStatus = null) }
             }
@@ -246,6 +258,7 @@ class LibraryViewModel @Inject constructor(
 
     fun refresh() = loadBooks()
     fun clearError() { _uiState.update { it.copy(error = null) } }
+    fun clearImportSuccessSnackbar() { _uiState.update { it.copy(importSuccessSnackbar = null) } }
 
     private fun resolveFileName(uri: Uri): String? {
         val cursor = context.contentResolver.query(uri, null, null, null, null)

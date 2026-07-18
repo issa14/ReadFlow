@@ -19,6 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -195,12 +198,12 @@ fun ReaderSettingsPanel(
             onValueChange = onFontSizeChange,
             valueRange = 12f..32f,
             steps = 9, // 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Taille de police, ${fontSizeSp.toInt()} points" },
             colors = SliderDefaults.colors(
                 thumbColor = accentColor,
                 activeTrackColor = accentColor,
                 inactiveTrackColor = textColor.copy(alpha = 0.2f)
             ),
-            modifier = Modifier.fillMaxWidth()
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -238,12 +241,12 @@ fun ReaderSettingsPanel(
             value = lineHeightEm,
             onValueChange = onLineHeightChange,
             valueRange = 1.2f..2.4f,
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Espacement des lignes, ${"%.1f".format(lineHeightEm)}x" },
             colors = SliderDefaults.colors(
                 thumbColor = accentColor,
                 activeTrackColor = accentColor,
                 inactiveTrackColor = textColor.copy(alpha = 0.2f)
             ),
-            modifier = Modifier.fillMaxWidth()
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -282,12 +285,12 @@ fun ReaderSettingsPanel(
             onValueChange = { onHorizontalMarginChange(it.toInt()) },
             valueRange = 8f..48f,
             steps = 4, // 8, 16, 24, 32, 40, 48
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Marges horizontales, ${horizontalMarginDp}dp" },
             colors = SliderDefaults.colors(
                 thumbColor = accentColor,
                 activeTrackColor = accentColor,
                 inactiveTrackColor = textColor.copy(alpha = 0.2f)
             ),
-            modifier = Modifier.fillMaxWidth()
         )
     }
 }
@@ -314,7 +317,10 @@ fun ThemeOptionItem(
                 ),
                 shape = RoundedCornerShape(8.dp)
             )
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .semantics {
+                contentDescription = "Thème $label"
+            },
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -366,7 +372,10 @@ fun FontOptionItem(
                 ),
                 shape = RoundedCornerShape(8.dp)
             )
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .semantics {
+                contentDescription = "Police $label"
+            },
         contentAlignment = Alignment.Center
     ) {
         Text(

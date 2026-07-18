@@ -169,6 +169,30 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(16.dp))
 
+        // ── SECTION ACCESSIBILITÉ ──
+        SectionHeader("♿ Accessibilité")
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                SwitchSetting(
+                    icon = Icons.Default.Animation,
+                    title = "Réduire les animations",
+                    subtitle = "Désactiver les transitions animées",
+                    checked = state.reduceMotion,
+                    onCheckedChange = { viewModel.setReduceMotion(it) }
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+                SwitchSetting(
+                    icon = Icons.Default.TextFields,
+                    title = "Police adaptée au système",
+                    subtitle = "Utiliser la taille de police Android",
+                    checked = state.respectSystemFontScale,
+                    onCheckedChange = { viewModel.setRespectSystemFontScale(it) }
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
         // ── SECTION STOCKAGE ──
         SectionHeader("📁 Stockage")
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {

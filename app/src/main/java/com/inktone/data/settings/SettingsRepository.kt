@@ -57,6 +57,13 @@ class SettingsRepository @Inject constructor(
         val FONT_SIZE = floatPreferencesKey("font_size")
         val LINE_HEIGHT = floatPreferencesKey("line_height")
         val HORIZONTAL_MARGIN = intPreferencesKey("horizontal_margin")
+
+        // Onboarding & accessibilité
+        val IS_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
+        val REDUCE_MOTION = booleanPreferencesKey("reduce_motion")
+        val RESPECT_SYSTEM_FONT_SCALE = booleanPreferencesKey("respect_system_font_scale")
+        val HAS_IMPORTED_FIRST_BOOK = booleanPreferencesKey("has_imported_first_book")
+        val HAS_SEEN_READER_TOOLTIP = booleanPreferencesKey("has_seen_reader_tooltip")
     }
 
     // ── Lectures (Flow) ──────────────────────────────
@@ -135,5 +142,41 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setHorizontalMargin(margin: Int) {
         dataStore.edit { it[Keys.HORIZONTAL_MARGIN] = margin.coerceIn(8, 48) }
+    }
+
+    // ── Onboarding ──────────────────────────────────
+
+    val isFirstLaunch: Flow<Boolean> = dataStore.data.map { it[Keys.IS_FIRST_LAUNCH] ?: true }
+
+    suspend fun setOnboardingComplete() {
+        dataStore.edit { it[Keys.IS_FIRST_LAUNCH] = false }
+    }
+
+    // ── Accessibilité ───────────────────────────────
+
+    val reduceMotion: Flow<Boolean> = dataStore.data.map { it[Keys.REDUCE_MOTION] ?: false }
+
+    suspend fun setReduceMotion(enabled: Boolean) {
+        dataStore.edit { it[Keys.REDUCE_MOTION] = enabled }
+    }
+
+    val respectSystemFontScale: Flow<Boolean> = dataStore.data.map { it[Keys.RESPECT_SYSTEM_FONT_SCALE] ?: true }
+
+    suspend fun setRespectSystemFontScale(enabled: Boolean) {
+        dataStore.edit { it[Keys.RESPECT_SYSTEM_FONT_SCALE] = enabled }
+    }
+
+    // ── Tooltips premier livre ──────────────────────
+
+    val hasImportedFirstBook: Flow<Boolean> = dataStore.data.map { it[Keys.HAS_IMPORTED_FIRST_BOOK] ?: false }
+
+    suspend fun markFirstBookImported() {
+        dataStore.edit { it[Keys.HAS_IMPORTED_FIRST_BOOK] = true }
+    }
+
+    val hasSeenReaderTooltip: Flow<Boolean> = dataStore.data.map { it[Keys.HAS_SEEN_READER_TOOLTIP] ?: false }
+
+    suspend fun markReaderTooltipSeen() {
+        dataStore.edit { it[Keys.HAS_SEEN_READER_TOOLTIP] = true }
     }
 }

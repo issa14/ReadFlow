@@ -147,7 +147,7 @@ fun TtsPanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            IconButton(onClick = onPrevious, modifier = Modifier.size(44.dp)) {
+            IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.SkipPrevious, "Précédent",
                     tint = MaterialTheme.colorScheme.outlineVariant)
             }
@@ -171,7 +171,7 @@ fun TtsPanel(
 
             Spacer(Modifier.width(24.dp))
 
-            IconButton(onClick = onNext, modifier = Modifier.size(44.dp)) {
+            IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.SkipNext, "Suivant",
                     tint = MaterialTheme.colorScheme.outlineVariant)
             }

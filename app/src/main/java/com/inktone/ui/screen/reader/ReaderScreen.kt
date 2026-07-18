@@ -24,6 +24,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inktone.ui.theme.reducedMotionDuration
 
 private data class SelectionInfo(
     val sentenceIndex: Int,
@@ -136,11 +137,38 @@ fun ReaderScreen(
                 )
             }
 
+        // ── Tooltip premier lancement lecteur ───────
+        if (state.showReaderTooltip && state.isHudVisible) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 80.dp, start = 32.dp, end = 32.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "💡 Appuyez sur ▶ pour synchroniser texte et audio",
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { viewModel.dismissReaderTooltip() }) {
+                        Text("OK", color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+
         // ── Barre d'actions de sélection ────────────
         AnimatedVisibility(
             visible = selectionState != null,
-            enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
+            enter = fadeIn(tween(reducedMotionDuration(200))) + slideInVertically(tween(reducedMotionDuration(200))) { it },
+            exit = fadeOut(tween(reducedMotionDuration(200))) + slideOutVertically(tween(reducedMotionDuration(200))) { it },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             SelectionActionBar(
@@ -195,8 +223,8 @@ fun ReaderScreen(
         // ── TopBar (overlay) ─────────────────────────
         AnimatedVisibility(
             visible = state.isHudVisible,
-            enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { -it },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -it },
+            enter = fadeIn(tween(reducedMotionDuration(200))) + slideInVertically(tween(reducedMotionDuration(200))) { -it },
+            exit = fadeOut(tween(reducedMotionDuration(200))) + slideOutVertically(tween(reducedMotionDuration(200))) { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             ReaderTopBar(
@@ -218,8 +246,8 @@ fun ReaderScreen(
         }
         AnimatedVisibility(
             visible = state.isHudVisible,
-            enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
+            enter = fadeIn(tween(reducedMotionDuration(200))) + slideInVertically(tween(reducedMotionDuration(200))) { it },
+            exit = fadeOut(tween(reducedMotionDuration(200))) + slideOutVertically(tween(reducedMotionDuration(200))) { it },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             UnifiedControlPanel(
@@ -232,6 +260,8 @@ fun ReaderScreen(
                 onThemeCycle = { viewModel.cycleTheme() },
                 onFontToggle = { viewModel.toggleOpenDyslexic() },
                 onDisplaySettingsClick = { viewModel.showSettingsSheet() },
+                onPrevSentence = { viewModel.previousSentence() },
+                onNextSentence = { viewModel.nextSentence() },
                 onPrevChapter = { viewModel.previousChapter() },
                 onNextChapter = { viewModel.nextChapter() }
             )

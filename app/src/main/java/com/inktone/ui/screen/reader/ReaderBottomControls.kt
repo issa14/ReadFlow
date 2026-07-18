@@ -7,6 +7,8 @@ import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material3.*
 import com.inktone.ui.theme.ttsActive
@@ -31,6 +33,8 @@ fun UnifiedControlPanel(
     onThemeCycle: () -> Unit,
     onFontToggle: () -> Unit,
     onDisplaySettingsClick: () -> Unit,
+    onPrevSentence: () -> Unit,
+    onNextSentence: () -> Unit,
     onPrevChapter: () -> Unit,
     onNextChapter: () -> Unit
 ) {
@@ -51,11 +55,27 @@ fun UnifiedControlPanel(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Phrase précédente
+                IconButton(onClick = onPrevSentence) {
+                    Icon(
+                        Icons.Default.SkipPrevious,
+                        "Phrase précédente", tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
                 // Play/Pause TTS
                 IconButton(onClick = onTtsClick) {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         "TTS", tint = accentColor, modifier = Modifier.size(26.dp)
+                    )
+                }
+                // Phrase suivante
+                IconButton(onClick = onNextSentence) {
+                    Icon(
+                        Icons.Default.SkipNext,
+                        "Phrase suivante", tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
                 // Options TTS (Headphones)

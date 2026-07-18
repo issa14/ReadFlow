@@ -633,11 +633,14 @@ private fun SentenceRenderer(
                 startTimestamp = playbackState.sentenceStartTimestamp
             )
         } else {
+            // Reading trail : phrases déjà lues grisées, à venir normales
+            val isAlreadyRead = index < activeIdx
             Text(
                 text = sentence.text,
                 style = textStyle.copy(
                     fontWeight = FontWeight.Normal,
-                    color = textColor.copy(alpha = 0.88f)
+                    color = if (isAlreadyRead) textColor.copy(alpha = 0.40f)
+                            else textColor.copy(alpha = 0.88f)
                 )
             )
         }
@@ -656,11 +659,12 @@ private fun ActiveSentenceText(
 ) {
     var elapsed by remember(startTimestamp) { mutableStateOf(System.currentTimeMillis() - startTimestamp) }
     
+    // Tracking à ~60fps pour une transition fluide entre les mots
     LaunchedEffect(startTimestamp, durationMs) {
         val start = startTimestamp
         while (System.currentTimeMillis() - start < durationMs) {
             elapsed = System.currentTimeMillis() - start
-            kotlinx.coroutines.delay(50)
+            kotlinx.coroutines.delay(16) // ~60 FPS
         }
         elapsed = durationMs
     }

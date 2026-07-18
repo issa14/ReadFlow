@@ -53,7 +53,8 @@ data class ReaderUiState(
     val useOpenDyslexic: Boolean = false,
     val lastAction: String? = null,
     val highlights: List<HighlightEntity> = emptyList(),
-    val bookmarks: List<BookmarkEntity> = emptyList()
+    val bookmarks: List<BookmarkEntity> = emptyList(),
+    val showReaderTooltip: Boolean = false
 )
 
 enum class ReaderTheme { DAY, NIGHT, SEPIA }
@@ -99,6 +100,11 @@ class ReaderViewModel @Inject constructor(
 
     fun toggleHud() { _uiState.update { it.copy(isHudVisible = !it.isHudVisible) } }
     fun hideHud() { _uiState.update { it.copy(isHudVisible = false) } }
+
+    fun dismissReaderTooltip() {
+        _uiState.update { it.copy(showReaderTooltip = false) }
+        viewModelScope.launch { settingsRepository.markReaderTooltipSeen() }
+    }
     fun showTtsSheet() { _uiState.update { it.copy(isTtsSheetVisible = true) } }
     fun hideTtsSheet() { _uiState.update { it.copy(isTtsSheetVisible = false) } }
     fun showTocSheet() { _uiState.update { it.copy(isTocSheetVisible = true) } }
@@ -201,6 +207,13 @@ class ReaderViewModel @Inject constructor(
                     )
                 }
             }.collect()
+        }
+
+        // Tooltip premier lancement reader
+        viewModelScope.launch {
+            if (!settingsRepository.hasSeenReaderTooltip.first()) {
+                _uiState.update { it.copy(showReaderTooltip = true) }
+            }
         }
 
         viewModelScope.launch {

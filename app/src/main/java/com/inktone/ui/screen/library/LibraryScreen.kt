@@ -59,6 +59,16 @@ fun LibraryScreen(
     var searchText by remember { mutableStateOf("") }
     var fontSizeScale by remember { mutableStateOf(1) } // 0=small, 1=medium, 2=large
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Snackbar de succès après premier import
+    LaunchedEffect(state.importSuccessSnackbar) {
+        state.importSuccessSnackbar?.let { msg ->
+            snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
+            viewModel.clearImportSuccessSnackbar()
+        }
+    }
+
     val epubPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -72,6 +82,7 @@ fun LibraryScreen(
             color = MaterialTheme.colorScheme.background
         ) {
             Scaffold(
+                snackbarHost = { SnackbarHost(snackbarHostState) },
                 topBar = {
                     if (showSearch) {
                         SearchBar(
@@ -161,7 +172,7 @@ fun LibraryScreen(
                         NavigationDestination.LIBRARY -> {
                             when {
                                 state.isLoading && state.books.isEmpty() -> LoadingView()
-                                state.books.isEmpty() && !state.isLoading -> EmptyView()
+                                state.books.isEmpty() && !state.isLoading -> EmptyView(onImportClick = { epubPicker.launch(arrayOf("application/epub+zip")) })
                                 else -> ShelfGrid(state.books, state.bookProgress, onBookClick)
                             }
                         }
@@ -1020,13 +1031,25 @@ private fun FloatingControls(
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun EmptyView() {
+private fun EmptyView(onImportClick: (() -> Unit)? = null) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.MenuBook, "Livres", Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
             Spacer(Modifier.height(12.dp))
             Text("Bibliothèque vide", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 16.sp)
+            if (onImportClick != null) {
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = onImportClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Add, "Importer", modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Importer un eBook")
+                }
+            }
         }
     }
 }

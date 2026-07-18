@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.inktone.ui.theme.reducedMotionDuration
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,7 +112,7 @@ private fun DailyGoalProgress(
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
-        animationSpec = tween(800),
+        animationSpec = tween(reducedMotionDuration(800)),
         label = "goalProgress"
     )
 

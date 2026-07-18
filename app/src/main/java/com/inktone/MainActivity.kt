@@ -5,10 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.inktone.data.settings.AppTheme
 import com.inktone.data.settings.SettingsRepository
 import com.inktone.ui.navigation.InkToneNavGraph
+import com.inktone.ui.screen.onboarding.OnboardingScreen
 import com.inktone.ui.theme.InkToneTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -24,8 +27,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val appTheme by settingsRepository.theme.collectAsStateWithLifecycle(initialValue = AppTheme.PAPIER_ART)
+            val isFirstLaunch by settingsRepository.isFirstLaunch.collectAsStateWithLifecycle(initialValue = true)
+            val scope = rememberCoroutineScope()
             InkToneTheme(theme = appTheme) {
-                InkToneNavGraph()
+                if (isFirstLaunch) {
+                    OnboardingScreen(
+                        onComplete = { scope.launch { settingsRepository.setOnboardingComplete() } }
+                    )
+                } else {
+                    InkToneNavGraph()
+                }
             }
         }
     }
