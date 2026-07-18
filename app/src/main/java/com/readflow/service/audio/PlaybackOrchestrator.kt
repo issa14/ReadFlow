@@ -6,6 +6,7 @@ import com.readflow.data.database.ReadingProgressDao
 import com.readflow.data.database.entity.ReadingProgress
 import com.readflow.domain.model.Sentence
 import com.readflow.domain.model.SynthesisResult
+import com.readflow.domain.model.SynthesisTimeoutException
 import com.readflow.domain.repository.TtsRepository
 import com.readflow.service.edge.EdgeTtsClient
 import com.readflow.service.onnx.OnnxInferenceService
@@ -69,6 +70,15 @@ class PlaybackOrchestrator @Inject constructor(
     companion object {
         private const val TAG = "Orchestrator"
         private const val LOOKAHEAD = 3
+
+        /** Timeout maximum pour une synthèse TTS (millisecondes). */
+        const val SYNTHESIS_TIMEOUT_MS = 2000L
+
+        /** Nombre d'erreurs consécutives avant pause automatique. */
+        private const val MAX_CONSECUTIVE_ERRORS = 3
+
+        /** Durée du silence injecté après une synthèse timeout (ms). */
+        private const val TIMEOUT_SILENCE_MS = 50
 
         // ── Durées de silence dynamiques selon la ponctuation ──
         private const val SILENCE_COMMA_MS     = 150   // virgule, point-virgule
@@ -140,6 +150,15 @@ class PlaybackOrchestrator @Inject constructor(
     private var currentJob: Job? = null
     private val playGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var wasPausedByFocusLoss: Boolean = false
+
+    /**
+     * Compteur d'erreurs de synthèse consécutives.
+     *
+     * Incrémenté par [launchSynthesisPipeline] à chaque timeout ou échec.
+     * Réinitialisé à chaque synthèse réussie. Si >= [MAX_CONSECUTIVE_ERRORS],
+     * [consumeAndPlay] met la lecture en pause et notifie l'UI.
+     */
+    private val consecutiveErrors = java.util.concurrent.atomic.AtomicInteger(0)
 
     /**
      * Verrou de sérialisation pour pause/resume/stop.
@@ -444,6 +463,7 @@ class PlaybackOrchestrator @Inject constructor(
         currentTotalSentences = sentences.size
         currentSentences = sentences
         sentenceDurations = LongArray(sentences.size)
+        consecutiveErrors.set(0) // réinitialiser le compteur pour ce nouveau play()
     }
 
     private fun CoroutineScope.launchSynthesisPipeline(
@@ -458,8 +478,31 @@ class PlaybackOrchestrator @Inject constructor(
                 if (currentJob?.isActive != true) break
                 val idx = startFrom + i
                 if (idx >= total) break
+
+                // Arrêt anticipé si trop d'erreurs consécutives
+                if (consecutiveErrors.get() >= MAX_CONSECUTIVE_ERRORS) {
+                    Log.w(TAG, "Trop d'erreurs consécutives (${consecutiveErrors.get()}) → arrêt du pipeline")
+                    _state.value = State.Error("Erreurs de synthèse répétées — lecture interrompue")
+                    _playbackState.update { it.copy(status = PlaybackStatus.IDLE) }
+                    break
+                }
+
                 try {
-                    val result = ttsRepository.synthesize(sentences[idx].text, voice, speed)
+                    val result = withTimeoutOrNull(SYNTHESIS_TIMEOUT_MS) {
+                        ttsRepository.synthesize(sentences[idx].text, voice, speed)
+                    }
+
+                    if (result == null) {
+                        // Timeout : skipper la phrase, injecter un court silence
+                        val timeoutEx = SynthesisTimeoutException(sentences[idx].text, SYNTHESIS_TIMEOUT_MS)
+                        Log.w(TAG, timeoutEx.message ?: "timeout sans message")
+                        handleSynthesisError(idx, timeoutEx, buffer)
+                        continue
+                    }
+
+                    // Succès : réinitialiser le compteur d'erreurs
+                    consecutiveErrors.set(0)
+
                     sentenceDurations[idx] = result.audioDurationMs
                     Log.d(TAG, "TtsDebug | synthèse OK: sentence $idx, engine=${result.engineId}, " +
                         "voice=${result.voiceLabel}, samples=${result.samples.size}, " +
@@ -480,13 +523,43 @@ class PlaybackOrchestrator @Inject constructor(
                         _playbackState.update { it.copy(status = PlaybackStatus.IDLE) }
                         break
                     }
-                    // Autres erreurs (ex: échec décodage) → passer à la phrase suivante
+                    // Autres erreurs → incrémenter le compteur et passer à la phrase suivante
+                    consecutiveErrors.incrementAndGet()
+                    Log.w(TAG, "Erreur #${consecutiveErrors.get()} consecutive — poursuite")
                 }
             }
         } finally {
             buffer.close()
             Log.d(TAG, "TtsDebug | launchSynthesisPipeline END: buffer closed, ${sentences.size} phrases traitées")
         }
+    }
+
+    /**
+     * Gère une erreur de synthèse (timeout ou autre) en injectant un court silence
+     * dans le buffer pour maintenir le flux audio, et en incrémentant le compteur
+     * d'erreurs consécutives.
+     */
+    private suspend fun handleSynthesisError(
+        sentenceIdx: Int,
+        exception: Exception,
+        buffer: Channel<SynthesisResult>
+    ) {
+        consecutiveErrors.incrementAndGet()
+        Log.w(TAG, "Erreur synthèse phrase $sentenceIdx (#${consecutiveErrors.get()} consecutive): ${exception.message}")
+
+        // Injecter un court silence (50ms) pour ne pas casser le flux audio
+        val silenceSamples = (player.sampleRate * TIMEOUT_SILENCE_MS / 1000).coerceAtLeast(1)
+        val silenceResult = SynthesisResult(
+            samples = FloatArray(silenceSamples) { 0f },
+            sampleRate = player.sampleRate,
+            text = "",
+            voiceLabel = "silence",
+            synthesisTimeMs = 0,
+            audioDurationMs = TIMEOUT_SILENCE_MS.toLong(),
+            engineId = "timeout"
+        )
+        sentenceDurations[sentenceIdx] = TIMEOUT_SILENCE_MS.toLong()
+        buffer.send(silenceResult)
     }
 
     private suspend fun consumeAndPlay(
@@ -500,6 +573,17 @@ class PlaybackOrchestrator @Inject constructor(
         var currentReadIdx = startFrom
 
         for (result in buffer) {
+            // Vérifier le compteur d'erreurs consécutives avant chaque consommation
+            if (consecutiveErrors.get() >= MAX_CONSECUTIVE_ERRORS) {
+                Log.w(TAG, "consumeAndPlay: $MAX_CONSECUTIVE_ERRORS erreurs consécutives détectées → pause")
+                _state.value = State.Error(
+                    "$MAX_CONSECUTIVE_ERRORS erreurs de synthèse consécutives — lecture mise en pause"
+                )
+                _playbackState.update { it.copy(status = PlaybackStatus.PAUSED) }
+                player.pause()
+                break
+            }
+
             // Attendre la fin de la pause (ne pas casser la pipeline !)
             while (_state.value == State.Paused && currentJob?.isActive == true) {
                 delay(100)

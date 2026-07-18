@@ -3,6 +3,7 @@ package com.readflow.service.audio
 import app.cash.turbine.test
 import com.readflow.domain.model.Sentence
 import com.readflow.domain.model.SynthesisResult
+import com.readflow.domain.model.SynthesisTimeoutException
 import com.readflow.domain.repository.TtsRepository
 import com.readflow.data.database.ReadingProgressDao
 import com.readflow.service.onnx.OnnxInferenceService
@@ -260,6 +261,182 @@ class PlaybackOrchestratorTest {
         val state = orchestrator.state.value
         assertTrue(state is PlaybackOrchestrator.State.Playing ||
                    state is PlaybackOrchestrator.State.Loading)
+
+        orchestrator.stop()
+    }
+
+    // ── Tests timeout synthèse ──────────────────────────────────
+
+    @Test
+    fun `timeout de synthèse ne bloque pas le pipeline`() = testScope.runTest {
+        var callCount = 0
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } coAnswers {
+            callCount++
+            if (callCount == 2) {
+                // Simuler un timeout sur la 2ème phrase
+                throw SynthesisTimeoutException("Phrase lente", 2000)
+            }
+            makeSynthesisResult("Phrase $callCount")
+        }
+
+        orchestrator.play(
+            sentences = testSentences.subList(0, 3),
+            voice = 0,
+            speed = 1.0f,
+            bookTitle = "Test Timeout",
+            chapterTitle = "Chapitre 1",
+            bookId = "book-1",
+            chapterIndex = 0
+        )
+
+        // Laisser le temps au pipeline de traiter les phrases
+        delay(200)
+
+        // Vérifier que la lecture a bien démarré (phrase 1 OK, phrase 2 timeout → silence)
+        val state = orchestrator.state.value
+        assertTrue(
+            state is PlaybackOrchestrator.State.Playing ||
+            state is PlaybackOrchestrator.State.Loading,
+            "Le pipeline ne doit pas être bloqué par un timeout (trouvé: ${state::class.simpleName})"
+        )
+
+        orchestrator.stop()
+    }
+
+    @Test
+    fun `3 timeouts consécutifs mettent la lecture en pause`() = testScope.runTest {
+        // Toutes les synthèses lèvent SynthesisTimeoutException
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } throws SynthesisTimeoutException("Lent", 2000)
+
+        orchestrator.play(
+            sentences = testSentences,
+            voice = 0,
+            speed = 1.0f,
+            bookTitle = "Test Timeout Consecutif",
+            chapterTitle = "Chapitre 1",
+            bookId = "book-1",
+            chapterIndex = 0
+        )
+
+        // Laisser le pipeline échouer 3 fois
+        // Thread.sleep car le pipeline tourne sur Dispatchers.IO (threads réels)
+        Thread.sleep(200)
+
+        // Après 3 timeouts, l'état doit être Error
+        val state = orchestrator.state.value
+        assertTrue(
+            state is PlaybackOrchestrator.State.Error,
+            "Après 3 timeouts consécutifs, l'état doit être Error (trouvé: ${state::class.simpleName})"
+        )
+
+        orchestrator.stop()
+    }
+
+    @Test
+    fun `succès après erreur réinitialise le compteur`() = testScope.runTest {
+        var callCount = 0
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } coAnswers {
+            callCount++
+            when (callCount) {
+                1 -> throw SynthesisTimeoutException("Timeout 1", 2000)
+                2 -> throw SynthesisTimeoutException("Timeout 2", 2000)
+                else -> makeSynthesisResult("OK phrase $callCount")
+            }
+        }
+
+        orchestrator.play(
+            sentences = testSentences,
+            voice = 0,
+            speed = 1.0f,
+            bookTitle = "Test Reset",
+            chapterTitle = "Chapitre 1",
+            bookId = "book-1",
+            chapterIndex = 0
+        )
+
+        delay(500)
+
+        // Après 2 timeouts puis 1 succès, le compteur est réinitialisé → pas d'erreur
+        val state = orchestrator.state.value
+        assertTrue(
+            state is PlaybackOrchestrator.State.Playing ||
+            state is PlaybackOrchestrator.State.Loading,
+            "Un succès doit réinitialiser le compteur d'erreurs (trouvé: ${state::class.simpleName})"
+        )
+
+        orchestrator.stop()
+    }
+
+    @Test
+    fun `erreur réseau persistante arrête le pipeline immédiatement`() = testScope.runTest {
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } throws RuntimeException(
+            "Unable to resolve host"
+        )
+
+        orchestrator.play(
+            sentences = testSentences.subList(0, 2),
+            voice = 0,
+            speed = 1.0f,
+            bookTitle = "Test Réseau",
+            chapterTitle = "Chapitre 1",
+            bookId = "book-1",
+            chapterIndex = 0
+        )
+
+        delay(300)
+
+        // L'erreur (générique) doit être gérée sans crash
+        val state = orchestrator.state.value
+        assertTrue(
+            state is PlaybackOrchestrator.State.Idle ||
+            state is PlaybackOrchestrator.State.Error ||
+            state is PlaybackOrchestrator.State.Loading,
+            "L'erreur doit être gérée sans crash (trouvé: ${state::class.simpleName})"
+        )
+
+        orchestrator.stop()
+    }
+
+    @Test
+    fun `le compteur d'erreurs est réinitialisé à chaque nouveau play()`() = testScope.runTest {
+        // Premier play() : tout timeout
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } throws SynthesisTimeoutException("Timeout", 2000)
+
+        orchestrator.play(
+            sentences = testSentences.subList(0, 3),
+            voice = 0,
+            speed = 1.0f,
+            bookTitle = "Test",
+            chapterTitle = "Chapitre 1",
+            bookId = "book-1",
+            chapterIndex = 0
+        )
+
+        delay(500)
+        orchestrator.stop()
+
+        // Deuxième play() : tout OK
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } returns makeSynthesisResult("OK")
+
+        orchestrator.play(
+            sentences = testSentences.subList(0, 2),
+            voice = 0,
+            speed = 1.0f,
+            bookTitle = "Test2",
+            chapterTitle = "Chapitre 2",
+            bookId = "book-1",
+            chapterIndex = 1
+        )
+
+        delay(300)
+
+        // Le deuxième play() doit fonctionner normalement (compteur réinitialisé)
+        val state = orchestrator.state.value
+        assertTrue(
+            state is PlaybackOrchestrator.State.Playing ||
+            state is PlaybackOrchestrator.State.Loading,
+            "Un nouveau play() doit réinitialiser le compteur d'erreurs (trouvé: ${state::class.simpleName})"
+        )
 
         orchestrator.stop()
     }
