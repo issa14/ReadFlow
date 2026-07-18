@@ -101,13 +101,12 @@ class OnnxInferenceService @Inject constructor(
     }
 
     private fun doInitialize() {
-        // Priorité 1: Miro (compatible Sherpa-ONNX 1.13.4)
-        // UPMC sera activé après mise à jour de Sherpa-ONNX (modèle incompatible actuellement)
-        val useUPMC = false // TODO: activer après upgrade Sherpa-ONNX ≥ 1.14
-        val (assetDir, onnxFile) = if (useUPMC && isModelAvailable(ASSET_DIR_UPMC, ONNX_FILE_UPMC)) {
+        // UPMC (Jessica + Pierre) — modèle principal
+        // Fallback automatique vers Miro si UPMC absent
+        val (assetDir, onnxFile) = if (isModelAvailable(ASSET_DIR_UPMC, ONNX_FILE_UPMC)) {
             ASSET_DIR_UPMC to ONNX_FILE_UPMC
         } else {
-            if (useUPMC) Log.w(TAG, "Modèle UPMC introuvable, fallback Miro")
+            Log.w(TAG, "Modèle UPMC introuvable, fallback Miro")
             ASSET_DIR_MIRO to ONNX_FILE_MIRO
         }
 
@@ -166,7 +165,7 @@ class OnnxInferenceService @Inject constructor(
      */
     suspend fun synthesize(
         text: String,
-        voice: Voice = Voice.MIRO,
+        voice: Voice = Voice.JESSICA,
         speed: Float = 1.0f
     ): SynthesisResult = withContext(Dispatchers.IO) {
         val engine = tts

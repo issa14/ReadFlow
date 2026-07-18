@@ -69,7 +69,7 @@ class SettingsRepository @Inject constructor(
 
     // ── Lectures (Flow) ──────────────────────────────
 
-    val voice: Flow<String> = dataStore.data.map { it[Keys.VOICE] ?: "Miro" }
+    val voice: Flow<String> = dataStore.data.map { it[Keys.VOICE] ?: "Jessica" }
     val speed: Flow<Float> = dataStore.data.map { it[Keys.SPEED] ?: 1.0f }
     val gain: Flow<Float> = dataStore.data.map { it[Keys.GAIN] ?: 3.0f }
     val theme: Flow<AppTheme> = dataStore.data.map {

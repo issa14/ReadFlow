@@ -15,13 +15,13 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SettingsUiState(
-    val voice: String = "Miro",
+    val voice: String = "Jessica",
     val speed: Float = 1.0f,
     val gain: Float = 3.0f,
     val theme: AppTheme = AppTheme.SYSTEM,
     val dynamicColors: Boolean = false,
     val modelPath: String = "",
-    val availableVoices: List<String> = listOf("Miro"),
+    val availableVoices: List<String> = listOf("Jessica", "Pierre"),
     // Moteur TTS
     val selectedEngine: String = "piper",
     val selectedEdgeVoice: String = "fr-FR-VivienneNeural",

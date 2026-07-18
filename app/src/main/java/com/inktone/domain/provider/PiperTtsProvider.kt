@@ -34,7 +34,7 @@ class PiperTtsProvider @Inject constructor(
     ): SynthesisResult {
         val voiceEnum = OnnxInferenceService.Voice.entries
             .find { it.name.lowercase() == voice.lowercase() }
-            ?: OnnxInferenceService.Voice.MIRO
+            ?: OnnxInferenceService.Voice.JESSICA
 
         val result = onnxService.synthesize(text, voiceEnum, speed)
         return result.copy(engineId = engineId)
