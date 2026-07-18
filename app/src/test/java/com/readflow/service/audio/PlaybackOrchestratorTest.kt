@@ -48,7 +48,7 @@ class PlaybackOrchestratorTest {
         Sentence(index = 4, text = "Parfait.", startOffset = 50, endOffset = 58)
     )
 
-    private fun makeSynthesisResult(text: String, durationMs: Long = 300L): SynthesisResult {
+    private fun makeSynthesisResult(text: String, durationMs: Long = 300L, engineId: String = "piper"): SynthesisResult {
         return SynthesisResult(
             samples = FloatArray(4410) { 0.5f },  // ~200ms à 22050Hz
             sampleRate = 22050,
@@ -56,7 +56,7 @@ class PlaybackOrchestratorTest {
             voiceLabel = "Miro",
             synthesisTimeMs = 50,
             audioDurationMs = durationMs,
-            engineId = "piper"
+            engineId = engineId
         )
     }
 
@@ -304,35 +304,67 @@ class PlaybackOrchestratorTest {
     }
 
     @Test
-    fun `3 timeouts consécutifs mettent la lecture en pause`() = testScope.runTest {
-        // Toutes les synthèses lèvent SynthesisTimeoutException
-        coEvery { ttsRepository.synthesize(any(), any(), any()) } throws SynthesisTimeoutException("Lent", 2000)
+    fun `3 timeouts consécutifs ONNX mettent la lecture en pause`() = testScope.runTest {
+        // Simuler un premier succès ONNX (détecte le moteur → maxErreurs=3)
+        var callCount = 0
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } coAnswers {
+            callCount++
+            if (callCount == 1) {
+                makeSynthesisResult("OK ONNX", engineId = "piper") // succès → ONNX détecté
+            } else {
+                throw SynthesisTimeoutException("Timeout", 2000)
+            }
+        }
 
         orchestrator.play(
-            sentences = testSentences,
-            voice = 0,
-            speed = 1.0f,
-            bookTitle = "Test Timeout Consecutif",
-            chapterTitle = "Chapitre 1",
-            bookId = "book-1",
-            chapterIndex = 0
+            sentences = testSentences, // 5 phrases : 1 OK + 3 timeouts + 1 restante
+            voice = 0, speed = 1.0f,
+            bookTitle = "Test", chapterTitle = "Ch1", bookId = "book-1", chapterIndex = 0
         )
 
-        // Laisser le pipeline échouer 3 fois
-        // Thread.sleep car le pipeline tourne sur Dispatchers.IO (threads réels)
         Thread.sleep(500)
 
-        // Après 3 timeouts, l'état doit être Error
+        // Après 1 succès ONNX + 3 timeouts → Error (maxErreurs=3 pour ONNX)
         val state = orchestrator.state.value
         assertTrue(
             state is PlaybackOrchestrator.State.Error,
-            "Après 3 timeouts consécutifs, l'état doit être Error (trouvé: ${state::class.simpleName})"
+            "Après 3 timeouts ONNX, l'état doit être Error (trouvé: ${state::class.simpleName})"
         )
-
         orchestrator.stop()
     }
 
     @Test
+    fun `8 timeouts Edge tolérés avant pause`() = testScope.runTest {
+        // Simuler Edge : 1 succès (détecte Edge → maxErreurs=8), puis 7 timeouts OK, 8ème = pause
+        var callCount = 0
+        coEvery { ttsRepository.synthesize(any(), any(), any()) } coAnswers {
+            callCount++
+            if (callCount == 1) {
+                makeSynthesisResult("OK Edge", engineId = "edge") // succès → Edge détecté
+            } else if (callCount <= 8) {
+                throw SynthesisTimeoutException("Timeout Edge $callCount", 5000)
+            } else {
+                makeSynthesisResult("Final", engineId = "edge")
+            }
+        }
+
+        orchestrator.play(
+            sentences = testSentences, // 5 phrases seulement, pas assez pour 8 erreurs
+            voice = 0, speed = 1.0f,
+            bookTitle = "Test Edge", chapterTitle = "Ch1", bookId = "book-1", chapterIndex = 0
+        )
+
+        Thread.sleep(500)
+
+        // Avec seulement 5 phrases et 1 succès + 4 timeouts (max 4 erreurs max),
+        // l'état ne doit PAS être Error (Edge tolère jusqu'à 8)
+        val state = orchestrator.state.value
+        assertFalse(
+            state is PlaybackOrchestrator.State.Error,
+            "Edge doit tolérer plus d'erreurs que ONNX (trouvé: ${state::class.simpleName})"
+        )
+        orchestrator.stop()
+    }
     fun `succès après erreur réinitialise le compteur`() = testScope.runTest {
         var callCount = 0
         coEvery { ttsRepository.synthesize(any(), any(), any()) } coAnswers {

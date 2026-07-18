@@ -71,11 +71,23 @@ class PlaybackOrchestrator @Inject constructor(
         private const val TAG = "Orchestrator"
         private const val LOOKAHEAD = 3
 
-        /** Timeout maximum pour une synthèse TTS (millisecondes). */
-        const val SYNTHESIS_TIMEOUT_MS = 2000L
+        /** Timeout synthèse ONNX/Piper local (CPU-bound, pas de réseau). */
+        const val ONNX_TIMEOUT_MS = 2000L
 
-        /** Nombre d'erreurs consécutives avant pause automatique. */
-        private const val MAX_CONSECUTIVE_ERRORS = 3
+        /** Timeout synthèse Edge cloud (réseau + WebSocket + DRM + synthèse). */
+        const val EDGE_TIMEOUT_MS = 8000L
+
+        /** Timeout par défaut avant de connaître le moteur actif. */
+        private const val DEFAULT_TIMEOUT_MS = 5000L
+
+        /** Erreurs consécutives max pour ONNX (local = fiable). */
+        private const val MAX_CONSECUTIVE_ERRORS_ONNX = 3
+
+        /** Erreurs consécutives max pour Edge (cloud = tolérance réseau). */
+        private const val MAX_CONSECUTIVE_ERRORS_EDGE = 8
+
+        /** Seuil d'erreurs par défaut avant de connaître le moteur. */
+        private const val MAX_CONSECUTIVE_ERRORS_DEFAULT = 5
 
         /** Durée du silence injecté après une synthèse timeout (ms). */
         private const val TIMEOUT_SILENCE_MS = 50
@@ -471,6 +483,13 @@ class PlaybackOrchestrator @Inject constructor(
         voice: Int, speed: Float, startFrom: Int, total: Int
     ) = launch {
         Log.d(TAG, "TtsDebug | launchSynthesisPipeline START: ${sentences.size} phrases, startFrom=$startFrom, total=$total, voice=$voice, speed=$speed")
+
+        // Timeout et seuil d'erreurs dynamiques : adaptés au moteur détecté
+        // (ONNX local = 2s/3 erreurs, Edge cloud = 8s/8 erreurs)
+        var synthesisTimeout = DEFAULT_TIMEOUT_MS
+        var maxConsecutiveErrors = MAX_CONSECUTIVE_ERRORS_DEFAULT
+        var engineDetected = false
+
         try {
             for (i in 0 until sentences.size) {
                 // Vérification proactive d'annulation avant chaque itération
@@ -479,29 +498,50 @@ class PlaybackOrchestrator @Inject constructor(
                 val idx = startFrom + i
                 if (idx >= total) break
 
-                // Arrêt anticipé si trop d'erreurs consécutives
-                if (consecutiveErrors.get() >= MAX_CONSECUTIVE_ERRORS) {
-                    Log.w(TAG, "Trop d'erreurs consécutives (${consecutiveErrors.get()}) → arrêt du pipeline")
+                // Arrêt anticipé si trop d'erreurs consécutives (seuil adaptatif)
+                if (consecutiveErrors.get() >= maxConsecutiveErrors) {
+                    Log.w(TAG, "Trop d'erreurs consécutives (${consecutiveErrors.get()}/$maxConsecutiveErrors) → arrêt du pipeline")
                     _state.value = State.Error("Erreurs de synthèse répétées — lecture interrompue")
                     _playbackState.update { it.copy(status = PlaybackStatus.IDLE) }
                     break
                 }
 
                 try {
-                    val result = withTimeoutOrNull(SYNTHESIS_TIMEOUT_MS) {
+                    val result = withTimeoutOrNull(synthesisTimeout) {
                         ttsRepository.synthesize(sentences[idx].text, voice, speed)
                     }
 
                     if (result == null) {
                         // Timeout : skipper la phrase, injecter un court silence
-                        val timeoutEx = SynthesisTimeoutException(sentences[idx].text, SYNTHESIS_TIMEOUT_MS)
+                        val timeoutEx = SynthesisTimeoutException(sentences[idx].text, synthesisTimeout)
                         Log.w(TAG, timeoutEx.message ?: "timeout sans message")
                         handleSynthesisError(idx, timeoutEx, buffer)
                         continue
                     }
 
-                    // Succès : réinitialiser le compteur d'erreurs
+                    // === Succès : ajuster les paramètres au moteur détecté ===
                     consecutiveErrors.set(0)
+
+                    if (!engineDetected) {
+                        engineDetected = true
+                        when (result.engineId) {
+                            "edge" -> {
+                                synthesisTimeout = EDGE_TIMEOUT_MS
+                                maxConsecutiveErrors = MAX_CONSECUTIVE_ERRORS_EDGE
+                                Log.d(TAG, "Moteur Edge détecté → timeout=${synthesisTimeout}ms, maxErreurs=$maxConsecutiveErrors")
+                            }
+                            else -> {
+                                synthesisTimeout = ONNX_TIMEOUT_MS
+                                maxConsecutiveErrors = MAX_CONSECUTIVE_ERRORS_ONNX
+                                Log.d(TAG, "Moteur ONNX/Piper détecté → timeout=${synthesisTimeout}ms, maxErreurs=$maxConsecutiveErrors")
+                            }
+                        }
+                        // Ajuster le sampleRate du player au résultat réel (Edge = 24000 Hz, ONNX = 22050 Hz)
+                        if (result.sampleRate != player.sampleRate) {
+                            Log.d(TAG, "SampleRate player ajusté: ${player.sampleRate} → ${result.sampleRate}")
+                            player.sampleRate = result.sampleRate
+                        }
+                    }
 
                     sentenceDurations[idx] = result.audioDurationMs
                     Log.d(TAG, "TtsDebug | synthèse OK: sentence $idx, engine=${result.engineId}, " +
@@ -573,17 +613,6 @@ class PlaybackOrchestrator @Inject constructor(
         var currentReadIdx = startFrom
 
         for (result in buffer) {
-            // Vérifier le compteur d'erreurs consécutives avant chaque consommation
-            if (consecutiveErrors.get() >= MAX_CONSECUTIVE_ERRORS) {
-                Log.w(TAG, "consumeAndPlay: $MAX_CONSECUTIVE_ERRORS erreurs consécutives détectées → pause")
-                _state.value = State.Error(
-                    "$MAX_CONSECUTIVE_ERRORS erreurs de synthèse consécutives — lecture mise en pause"
-                )
-                _playbackState.update { it.copy(status = PlaybackStatus.PAUSED) }
-                player.pause()
-                break
-            }
-
             // Attendre la fin de la pause (ne pas casser la pipeline !)
             while (_state.value == State.Paused && currentJob?.isActive == true) {
                 delay(100)
