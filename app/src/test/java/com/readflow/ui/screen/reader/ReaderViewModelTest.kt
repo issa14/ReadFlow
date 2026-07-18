@@ -16,6 +16,9 @@ import com.readflow.domain.repository.TtsRepository
 import com.readflow.domain.service.AudioServiceLauncher
 import com.readflow.domain.usecase.CalculateReadingProgressUseCase
 import com.readflow.domain.usecase.LoadChapterUseCase
+import com.readflow.domain.usecase.ManageReaderAnnotationsUseCase
+import com.readflow.domain.usecase.PreWarmNextChapterUseCase
+import com.readflow.domain.usecase.ResolveReadingPositionUseCase
 import com.readflow.service.audio.PlaybackOrchestrator
 import com.readflow.service.audio.PlaybackState
 import com.readflow.service.audio.PlaybackStatus
@@ -57,6 +60,9 @@ class ReaderViewModelTest {
     private val ttsRepository = mockk<TtsRepository>(relaxed = true)
     private val calculateProgress = mockk<CalculateReadingProgressUseCase>(relaxed = true)
     private val loadChapterUseCase = mockk<LoadChapterUseCase>(relaxed = true)
+    private val annotationsUseCase = mockk<ManageReaderAnnotationsUseCase>(relaxed = true)
+    private val preWarmChapter = mockk<PreWarmNextChapterUseCase>(relaxed = true)
+    private val resolvePosition = mockk<ResolveReadingPositionUseCase>(relaxed = true)
 
     private lateinit var viewModel: ReaderViewModel
 
@@ -122,7 +128,10 @@ class ReaderViewModelTest {
             audioServiceLauncher = audioServiceLauncher,
             ttsRepository = ttsRepository,
             calculateProgress = calculateProgress,
-            loadChapterUseCase = loadChapterUseCase
+            loadChapterUseCase = loadChapterUseCase,
+            annotationsUseCase = annotationsUseCase,
+            preWarmChapter = preWarmChapter,
+            resolvePosition = resolvePosition
         )
     }
 

@@ -10,6 +10,9 @@ import com.readflow.domain.repository.BookRepository
 import com.readflow.domain.repository.TtsRepository
 import com.readflow.domain.usecase.CalculateReadingProgressUseCase
 import com.readflow.domain.usecase.LoadChapterUseCase
+import com.readflow.domain.usecase.ManageReaderAnnotationsUseCase
+import com.readflow.domain.usecase.PreWarmNextChapterUseCase
+import com.readflow.domain.usecase.ResolveReadingPositionUseCase
 import com.readflow.data.database.AnnotationDao
 import com.readflow.data.database.BookmarkDao
 import com.readflow.data.database.HighlightDao
@@ -70,7 +73,10 @@ class ReaderViewModel @Inject constructor(
     private val audioServiceLauncher: com.readflow.domain.service.AudioServiceLauncher,
     private val ttsRepository: TtsRepository,
     private val calculateProgress: CalculateReadingProgressUseCase,
-    private val loadChapterUseCase: LoadChapterUseCase
+    private val loadChapterUseCase: LoadChapterUseCase,
+    private val annotationsUseCase: ManageReaderAnnotationsUseCase,
+    private val preWarmChapter: PreWarmNextChapterUseCase,
+    private val resolvePosition: ResolveReadingPositionUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
@@ -257,15 +263,15 @@ class ReaderViewModel @Inject constructor(
                 currentBook = book
                 _uiState.update { it.copy(book = book, isLoading = false) }
                 val dbProgress = orchestrator.loadProgress(bookId)
-                val targetChapter: Int
-                val targetSentence: Int
-                if (dbProgress != null) {
-                    targetChapter = dbProgress.chapterIndex.coerceIn(0, book.totalChapters - 1)
-                    targetSentence = dbProgress.sentenceIndex
-                } else {
-                    targetChapter = savedChapter
-                    targetSentence = savedSentence
-                }
+                val position = resolvePosition(
+                    dbChapterIndex = dbProgress?.chapterIndex,
+                    dbSentenceIndex = dbProgress?.sentenceIndex,
+                    savedChapterIndex = savedChapter,
+                    savedSentenceIndex = savedSentence,
+                    totalChapters = book.totalChapters
+                )
+                val targetChapter = position.chapterIndex
+                val targetSentence = position.sentenceIndex
                 loadChapter(targetChapter, targetSentence)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
@@ -298,7 +304,9 @@ class ReaderViewModel @Inject constructor(
                 }
 
                 // Lancer le préchauffage du chapitre suivant en arrière-plan
-                preWarmNextChapter(book, index)
+                viewModelScope.launch(Dispatchers.IO) {
+                    preWarmChapter(book, index, _uiState.value.voice, _uiState.value.speed)
+                }
 
                 // Relancer la lecture automatiquement après un auto-advance
                 if (autoPlay) {
@@ -395,53 +403,18 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Pré-synthétise la première phrase du chapitre suivant en arrière-plan.
-     *
-     * Appelé après chaque [loadChapter] pour que le passage au chapitre N+1
-     * soit instantané (gap zéro, pas d'attente de synthèse WebSocket/ONNX).
-     */
-    private fun preWarmNextChapter(book: Book, currentIndex: Int) {
-        val nextIndex = currentIndex + 1
-        if (nextIndex >= book.totalChapters) return
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val nextChapter = bookRepository.getChapter(book.id, nextIndex)
-                val firstSentence = nextChapter.sentences.firstOrNull() ?: return@launch
-                val s = _uiState.value
-                val result = ttsRepository.synthesize(firstSentence.text, s.voice, s.speed)
-                orchestrator.preWarm(result)
-                Log.d("ReaderVM", "Pre-warm OK: chapitre ${nextIndex + 1}, phrase 1 (${result.engineId})")
-            } catch (e: Exception) {
-                Log.w("ReaderVM", "Pre-warm échoué pour chapitre ${nextIndex + 1}: ${e.message}")
-            }
-        }
-    }
-
     fun clearError() { _uiState.update { it.copy(error = null) } }
 
     // ── Marque-pages, surlignages, annotations ─
 
     fun addBookmark(sentenceIndex: Int, text: String) {
         val book = currentBook ?: return
+        val chapterIdx = _uiState.value.currentChapterIndex
         viewModelScope.launch {
             try {
-                val chapterIdx = _uiState.value.currentChapterIndex
-                val existing = bookmarkDao.findByPosition(book.id, chapterIdx, sentenceIndex)
-                if (existing != null) {
-                    bookmarkDao.delete(existing)
-                    _uiState.update { it.copy(lastAction = "Marque-page retiré") }
-                } else {
-                    bookmarkDao.insert(
-                        BookmarkEntity(
-                            bookId = book.id,
-                            chapterIndex = chapterIdx,
-                            sentenceIndex = sentenceIndex,
-                            text = text.take(120)
-                        )
-                    )
-                    _uiState.update { it.copy(lastAction = "Marque-page ajouté") }
+                val result = annotationsUseCase.toggleBookmark(book.id, chapterIdx, sentenceIndex, text)
+                if (result is com.readflow.domain.usecase.AnnotationResult.Success) {
+                    _uiState.update { it.copy(lastAction = result.message) }
                 }
                 reloadAnnotations(book.id, chapterIdx)
             } catch (e: Exception) {
@@ -452,21 +425,13 @@ class ReaderViewModel @Inject constructor(
 
     fun addHighlight(sentenceIndex: Int, selectedText: String, startOffset: Int, endOffset: Int) {
         val book = currentBook ?: return
+        val chapterIdx = _uiState.value.currentChapterIndex
         viewModelScope.launch {
             try {
-                val chapterIdx = _uiState.value.currentChapterIndex
-                highlightDao.insertHighlight(
-                    HighlightEntity(
-                        bookId = book.id,
-                        chapterIndex = chapterIdx,
-                        sentenceIndex = sentenceIndex,
-                        startOffset = startOffset,
-                        endOffset = endOffset,
-                        selectedText = selectedText,
-                        colorHex = "#FFEB3D"
-                    )
-                )
-                _uiState.update { it.copy(lastAction = "Surlignage ajouté") }
+                val result = annotationsUseCase.addHighlight(book.id, chapterIdx, sentenceIndex, selectedText, startOffset, endOffset)
+                if (result is com.readflow.domain.usecase.AnnotationResult.Success) {
+                    _uiState.update { it.copy(lastAction = result.message) }
+                }
                 reloadAnnotations(book.id, chapterIdx)
             } catch (e: Exception) {
                 Log.e("ReaderVM", "Error highlight: ${e.message}", e)
@@ -476,19 +441,13 @@ class ReaderViewModel @Inject constructor(
 
     fun addAnnotation(sentenceIndex: Int, selectedText: String) {
         val book = currentBook ?: return
+        val chapterIdx = _uiState.value.currentChapterIndex
         viewModelScope.launch {
             try {
-                val chapterIdx = _uiState.value.currentChapterIndex
-                annotationDao.insertAnnotation(
-                    AnnotationEntity(
-                        bookId = book.id,
-                        chapterIndex = chapterIdx,
-                        sentenceIndex = sentenceIndex,
-                        selectedText = selectedText,
-                        colorHex = "#FFF9C4"
-                    )
-                )
-                _uiState.update { it.copy(lastAction = "Annotation ajoutée") }
+                val result = annotationsUseCase.addAnnotation(book.id, chapterIdx, sentenceIndex, selectedText)
+                if (result is com.readflow.domain.usecase.AnnotationResult.Success) {
+                    _uiState.update { it.copy(lastAction = result.message) }
+                }
                 reloadAnnotations(book.id, chapterIdx)
             } catch (e: Exception) {
                 Log.e("ReaderVM", "Error annotation: ${e.message}", e)
@@ -498,9 +457,8 @@ class ReaderViewModel @Inject constructor(
 
     private suspend fun reloadAnnotations(bookId: String, chapterIdx: Int) {
         try {
-            val highlights = highlightDao.getHighlightsForChapter(bookId, chapterIdx).first()
-            val bookmarks = bookmarkDao.getBookmarks(bookId).first()
-            _uiState.update { it.copy(highlights = highlights, bookmarks = bookmarks) }
+            val reloaded = annotationsUseCase.reloadAnnotations(bookId, chapterIdx)
+            _uiState.update { it.copy(highlights = reloaded.highlights, bookmarks = reloaded.bookmarks) }
         } catch (e: Exception) {
             Log.e("ReaderVM", "Error reloading annotations: ${e.message}", e)
         }
