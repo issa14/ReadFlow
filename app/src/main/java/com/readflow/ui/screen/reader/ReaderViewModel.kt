@@ -275,7 +275,7 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    private fun loadChapter(index: Int, sentenceIndex: Int = 0) {
+    private fun loadChapter(index: Int, sentenceIndex: Int = 0, autoPlay: Boolean = false) {
         val book = currentBook ?: return
         if (index < 0 || index >= book.totalChapters) return
         // Empêche les appels concurrents qui causent la boucle infinie
@@ -303,6 +303,11 @@ class ReaderViewModel @Inject constructor(
 
                 // Lancer le préchauffage du chapitre suivant en arrière-plan
                 preWarmNextChapter(book, index)
+
+                // Relancer la lecture automatiquement après un auto-advance
+                if (autoPlay) {
+                    play()
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false, isLoadingChapter = false) }
             }
@@ -389,9 +394,7 @@ class ReaderViewModel @Inject constructor(
         if (currentIdx >= lastIdx) {
             val next = _uiState.value.currentChapterIndex + 1
             if (next < book.totalChapters) {
-                loadChapter(next)
-                // Relancer la lecture avec le nouveau chapitre
-                play()
+                loadChapter(next, autoPlay = true)
             }
         }
     }
