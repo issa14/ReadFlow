@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "InkTone"
 include(":app")
+include(":benchmark")
