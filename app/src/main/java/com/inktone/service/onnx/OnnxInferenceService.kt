@@ -32,8 +32,8 @@ class OnnxInferenceService @Inject constructor(
 ) {
     companion object {
         private const val TAG = "OnnxInference"
-        private const val ASSET_DIR_UPMC = "models/vits-piper-fr_FR-upmc"
-        private const val ONNX_FILE_UPMC  = "fr_FR-upmc.onnx"
+        private const val ASSET_DIR_UPMC = "models/vits-piper-fr_FR-upmc-medium"
+        private const val ONNX_FILE_UPMC  = "fr_FR-upmc-medium.onnx"
         private const val ASSET_DIR_MIRO = "models/vits-piper-fr_FR-miro-high"
         private const val ONNX_FILE_MIRO  = "fr_FR-miro-high.onnx"
         private const val TOKENS_TXT = "tokens.txt"
@@ -171,7 +171,7 @@ class OnnxInferenceService @Inject constructor(
                 throw IllegalStateException("Le fichier de tokens $TOKENS_TXT est inaccessible ou corrompu : ${e.message}")
             }
 
-            val dataDir = copyEspeakDataToInternal()
+            val dataDir = copyEspeakDataToInternal(assetDir)
 
             val vitsConfig = OfflineTtsVitsModelConfig(
                 model    = "$assetDir/$onnxFile",
@@ -285,15 +285,16 @@ class OnnxInferenceService @Inject constructor(
 
     // ── Private ───────────────────────────────────────────────────
 
-    /** Copie espeak-ng-data des assets → stockage interne (une seule fois). */
-    private fun copyEspeakDataToInternal(): String {
-        val target = File(context.filesDir, "espeak-ng-data")
+    /** Copie espeak-ng-data des assets → stockage interne (une seule fois par modèle). */
+    private fun copyEspeakDataToInternal(assetDir: String): String {
+        // Répertoire cible spécifique au modèle pour éviter les conflits
+        val modelKey = assetDir.substringAfterLast('/')
+        val target = File(context.filesDir, "espeak-ng-data/$modelKey")
         if (target.isDirectory && target.listFiles()?.isNotEmpty() == true)
             return target.absolutePath
         Log.i(TAG, "Copie espeak-ng-data → ${target.absolutePath}")
         target.mkdirs()
-        // Utiliser les données eSpeak du modèle Miro (compatibles UPMC, même langue)
-        copyAssetDir("$ASSET_DIR_MIRO/espeak-ng-data", target)
+        copyAssetDir("$assetDir/espeak-ng-data", target)
         return target.absolutePath
     }
 
