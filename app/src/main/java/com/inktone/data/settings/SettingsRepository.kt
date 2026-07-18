@@ -64,6 +64,7 @@ class SettingsRepository @Inject constructor(
         val RESPECT_SYSTEM_FONT_SCALE = booleanPreferencesKey("respect_system_font_scale")
         val HAS_IMPORTED_FIRST_BOOK = booleanPreferencesKey("has_imported_first_book")
         val HAS_SEEN_READER_TOOLTIP = booleanPreferencesKey("has_seen_reader_tooltip")
+        val HAS_SEEN_PLAY_TOOLTIP = booleanPreferencesKey("has_seen_play_tooltip")
     }
 
     // ── Lectures (Flow) ──────────────────────────────
@@ -178,5 +179,11 @@ class SettingsRepository @Inject constructor(
 
     suspend fun markReaderTooltipSeen() {
         dataStore.edit { it[Keys.HAS_SEEN_READER_TOOLTIP] = true }
+    }
+
+    val hasSeenPlayTooltip: Flow<Boolean> = dataStore.data.map { it[Keys.HAS_SEEN_PLAY_TOOLTIP] ?: false }
+
+    suspend fun markPlayTooltipSeen() {
+        dataStore.edit { it[Keys.HAS_SEEN_PLAY_TOOLTIP] = true }
     }
 }

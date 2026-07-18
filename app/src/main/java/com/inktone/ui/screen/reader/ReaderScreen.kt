@@ -167,6 +167,33 @@ fun ReaderScreen(
             }
         }
 
+        // ── Tooltip 2 : après premier play ──────────
+        if (state.showPlayTooltip) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 80.dp, start = 32.dp, end = 32.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "💡 Le surlignage suit chaque mot lu",
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { viewModel.dismissPlayTooltip() }) {
+                        Text("Compris !", color = MaterialTheme.colorScheme.tertiary)
+                    }
+                }
+            }
+        }
+
         // ── Barre d'actions de sélection ────────────
         AnimatedVisibility(
             visible = selectionState != null,

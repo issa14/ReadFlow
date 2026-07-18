@@ -54,7 +54,8 @@ data class ReaderUiState(
     val lastAction: String? = null,
     val highlights: List<HighlightEntity> = emptyList(),
     val bookmarks: List<BookmarkEntity> = emptyList(),
-    val showReaderTooltip: Boolean = false
+    val showReaderTooltip: Boolean = false,
+    val showPlayTooltip: Boolean = false
 )
 
 enum class ReaderTheme { DAY, NIGHT, SEPIA }
@@ -104,6 +105,11 @@ class ReaderViewModel @Inject constructor(
     fun dismissReaderTooltip() {
         _uiState.update { it.copy(showReaderTooltip = false) }
         viewModelScope.launch { settingsRepository.markReaderTooltipSeen() }
+    }
+
+    fun dismissPlayTooltip() {
+        _uiState.update { it.copy(showPlayTooltip = false) }
+        viewModelScope.launch { settingsRepository.markPlayTooltipSeen() }
     }
     fun showTtsSheet() { _uiState.update { it.copy(isTtsSheetVisible = true) } }
     fun hideTtsSheet() { _uiState.update { it.copy(isTtsSheetVisible = false) } }
@@ -408,6 +414,14 @@ class ReaderViewModel @Inject constructor(
         )
         Log.d(TAG, "DEBUG play() → orchestrator.play() done")
         _uiState.update { it.copy(isPlaying = true) }
+
+        // Tooltip 2 : "Le surlignage suit chaque mot" après le 1er play
+        viewModelScope.launch {
+            if (!settingsRepository.hasSeenPlayTooltip.first()) {
+                kotlinx.coroutines.delay(3000)
+                _uiState.update { it.copy(showPlayTooltip = true) }
+            }
+        }
     }
 
     fun pause() {
