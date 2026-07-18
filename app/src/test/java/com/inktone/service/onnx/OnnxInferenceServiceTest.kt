@@ -2,9 +2,11 @@ package com.inktone.service.onnx
 
 import android.content.Context
 import android.content.res.AssetManager
+import com.inktone.data.settings.SettingsRepository
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
@@ -31,6 +33,7 @@ class OnnxInferenceServiceTest {
     private val context = mockk<Context>(relaxed = true)
     private val assetManager = mockk<AssetManager>(relaxed = true)
     private val filesDir = mockk<File>(relaxed = true)
+    private val settingsRepo = mockk<SettingsRepository>(relaxed = true)
 
     private lateinit var service: OnnxInferenceService
 
@@ -42,7 +45,12 @@ class OnnxInferenceServiceTest {
         every { context.filesDir } returns filesDir
         every { filesDir.absolutePath } returns "/data/data/com.inktone/files"
 
-        service = OnnxInferenceService(context)
+        // Settings mocks
+        every { settingsRepo.upmcInitFailed } returns flowOf(false)
+        coEvery { settingsRepo.setUpmcInitFlag() } just Runs
+        coEvery { settingsRepo.clearUpmcInitFlag() } just Runs
+
+        service = OnnxInferenceService(context, settingsRepo)
     }
 
     @AfterEach

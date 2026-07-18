@@ -6,9 +6,12 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
+import com.inktone.data.settings.SettingsRepository
 import com.inktone.domain.model.SynthesisResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -24,7 +27,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class OnnxInferenceService @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val settingsRepository: SettingsRepository
 ) {
     companion object {
         private const val TAG = "OnnxInference"
@@ -48,6 +52,9 @@ class OnnxInferenceService @Inject constructor(
 
     /** true pendant l'initialisation. */
     @Volatile private var isInitializing: Boolean = false
+
+    /** Modèle actuellement chargé (pour adapter les SID). */
+    @Volatile private var loadedModelDir: String? = null
 
     /** Mutex pour sérialiser l'initialisation. */
     private val initMutex = Mutex()
@@ -81,6 +88,9 @@ class OnnxInferenceService @Inject constructor(
      * Idempotente : si déjà initialisé, retourne immédiatement.
      * Thread-safe via [Mutex] : le fast-path hors-mutex évite toute
      * attente inutile après la première initialisation.
+     *
+     * Crash guard UPMC : si une initialisation UPMC précédente a
+     * crashé le process natif, on bascule automatiquement sur Miro.
      */
     suspend fun initialize() {
         // Fast-path sans mutex : si déjà prêt, on ne bloque personne
@@ -90,24 +100,58 @@ class OnnxInferenceService @Inject constructor(
             if (isInitialized || isInitializing) return
             isInitializing = true
             try {
-                withContext(Dispatchers.IO) {
-                    doInitialize()
+                // Crash guard : si le flag est levé, UPMC a crashé le process
+                // au lancement précédent → on le saute pour éviter une boucle
+                val skipUpmc = settingsRepository.upmcInitFailed.first()
+                if (skipUpmc) {
+                    Log.w(TAG, "Crash UPMC détecté au lancement précédent, fallback Miro forcé")
                 }
-                isInitialized = true
+
+                // Si on va tenter UPMC, écrire le flag AVANT l'appel natif
+                // pour que le prochain lancement sache que ça a crashé
+                if (!skipUpmc && isModelAvailable(ASSET_DIR_UPMC, ONNX_FILE_UPMC)) {
+                    settingsRepository.setUpmcInitFlag()
+                }
+
+                val success = withContext(Dispatchers.IO) {
+                    doInitialize(skipUpmc)
+                }
+
+                // Succès → effacer le flag crash
+                if (success && !skipUpmc) {
+                    settingsRepository.clearUpmcInitFlag()
+                }
+
+                isInitialized = success
             } finally {
                 isInitializing = false
             }
         }
     }
 
-    private fun doInitialize() {
+    /**
+     * Initialise le modèle ONNX sur le thread courant (doit être appelé
+     * depuis [Dispatchers.IO]).
+     *
+     * @param skipUpmc si true, ignore le modèle UPMC et utilise Miro directement
+     *                 (utilisé quand un crash natif a été détecté au lancement précédent)
+     * @return true si l'initialisation a réussi
+     */
+    private fun doInitialize(skipUpmc: Boolean = false): Boolean {
         // UPMC (Jessica + Pierre) — modèle principal
-        // Fallback automatique vers Miro si UPMC absent
-        val (assetDir, onnxFile) = if (isModelAvailable(ASSET_DIR_UPMC, ONNX_FILE_UPMC)) {
-            ASSET_DIR_UPMC to ONNX_FILE_UPMC
-        } else {
-            Log.w(TAG, "Modèle UPMC introuvable, fallback Miro")
-            ASSET_DIR_MIRO to ONNX_FILE_MIRO
+        // Miro — fallback automatique si UPMC absent ou crashé
+        val (assetDir, onnxFile) = when {
+            skipUpmc -> {
+                Log.w(TAG, "UPMC désactivé (crash guard), utilisation Miro")
+                ASSET_DIR_MIRO to ONNX_FILE_MIRO
+            }
+            isModelAvailable(ASSET_DIR_UPMC, ONNX_FILE_UPMC) -> {
+                ASSET_DIR_UPMC to ONNX_FILE_UPMC
+            }
+            else -> {
+                Log.w(TAG, "Modèle UPMC introuvable, fallback Miro")
+                ASSET_DIR_MIRO to ONNX_FILE_MIRO
+            }
         }
 
         try {
@@ -150,11 +194,14 @@ class OnnxInferenceService @Inject constructor(
 
             Log.i(TAG, "Initialisation du moteur TTS ($assetDir)...")
             tts = OfflineTts(context.assets, config)
+            loadedModelDir = assetDir
             Log.i(TAG, "TTS OK — ${tts!!.numSpeakers()} locuteur(s), ${tts!!.sampleRate()} Hz, modèle: $assetDir")
+            return true
         } catch (t: Throwable) {
             Log.e(TAG, "Erreur fatale lors de l'initialisation du moteur natif Sherpa-ONNX", t)
             tts = null
-            throw RuntimeException("Erreur de moteur de synthèse vocale natif (ONNX/JNI) : ${t.message}", t)
+            loadedModelDir = null
+            return false
         }
     }
 
@@ -180,7 +227,11 @@ class OnnxInferenceService @Inject constructor(
             .replace(MULTIPLE_SPACES, " ")
         Log.d(TAG, "synth: \"$cleaned\"")
         val startMs = System.currentTimeMillis()
-        val audio = engine.generate(cleaned, voice.sid, speed.coerceIn(0.5f, 2.0f))
+        // Clamper le SID au nombre de locuteurs du modèle chargé
+        // (Miro n'a qu'1 locuteur, UPMC en a 2)
+        val safeSid = if (loadedModelDir == ASSET_DIR_MIRO) 0
+            else voice.sid.coerceIn(0, (tts?.numSpeakers() ?: 1) - 1)
+        val audio = engine.generate(cleaned, safeSid, speed.coerceIn(0.5f, 2.0f))
         val elapsedMs = System.currentTimeMillis() - startMs
         val durationMs = ((audio.samples.size.toFloat() / audio.sampleRate) * 1000).toLong()
         val rtf = elapsedMs / durationMs.coerceAtLeast(1).toFloat()
@@ -207,6 +258,7 @@ class OnnxInferenceService @Inject constructor(
         }
         tts = null
         isInitialized = false
+        loadedModelDir = null
         Log.i(TAG, "Modèle ONNX libéré")
     }
 
