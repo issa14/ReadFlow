@@ -59,6 +59,12 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - `GaplessAudioPlayerTest` : 17 tests (race conditions, stress, mémoire)
   - `PlaybackOrchestratorTest` : 10 tests (timeout, erreurs consécutives, pipeline)
 
+- **Pipeline TTS : timeouts et seuils d'erreurs adaptatifs par moteur**
+  - Timeout différencié : ONNX/Piper 2s, Edge cloud 8s, défaut 5s
+  - Seuil d'erreurs consécutives adaptatif : 3 (ONNX) vs 8 (Edge)
+  - SampleRate du player ajusté dynamiquement au résultat de synthèse (Edge=24000 Hz, ONNX=22050 Hz)
+  - Le sampleRate est appliqué avant `player.play()` → `ensureTrack()` crée l'AudioTrack au bon taux
+
 #### Confirmed — Déjà conformes
 
 - **SILENCE_BUFFER / ShortArray** : `ShortArray(n)` par phrase déjà éliminé via CRITIQUE 2 ✅

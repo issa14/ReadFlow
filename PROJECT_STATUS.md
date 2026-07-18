@@ -126,8 +126,9 @@ Voir [`CHANGELOG.md`](./CHANGELOG.md) et [`files/EXECUTIVE_SUMMARY_CORRECTIONS.m
 | 🟠 H4 | ReaderViewModel → 5 UseCases extraits | `559e5f4`, `7612302` | ViewModel 520→470 L, logique métier dans domain |
 | 🟠 H5 | Baseline Profile 72 entrées (+260%) | `3a7709b` | Cold start cible <300ms |
 | 🟠 H6 | Tests unitaires : 110 tests, 12 fichiers | `57dd4fd` | Couverture ~50% (était ~12%) |
+| 🔧 FIX | Timeout adaptatif ONNX/Edge + sampleRate dynamique | `389c24c`, `00d8b98` | Edge ne coupe plus après 3 phrases lentes, pitch corrigé |
 
-**Validation** : `./gradlew clean test` ✅, `lint` ✅, `assembleDebug` ✅
+**Validation** : `./gradlew clean test` ✅, `lint` ✅, `assembleDebug` ✅, `installDebug` ✅
 
 ### 🔄 Historique TTS : Kokoro → Piper
 
