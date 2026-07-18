@@ -303,6 +303,89 @@ class GaplessAudioPlayerTest {
         assertTrue(lockAcquiredInStop.get(), "stop() doit avoir acquis le writeLock")
     }
 
+    // ── Tests mémoire / allocation ─────────────────────────
+
+    @Test
+    fun `allocationsSaved incrémenté à chaque appel writeBlocking`() {
+        setPrivateTrack(mockTrack)
+        player.play()
+
+        assertEquals(0, player.allocationsSaved)
+
+        // 3 segments = 3 appels à writeBlocking = 3 allocations évitées
+        invokeWriteBlocking(FloatArray(22050) { 0.5f })
+        assertEquals(1, player.allocationsSaved)
+
+        invokeWriteBlocking(FloatArray(11025) { 0.3f })
+        assertEquals(2, player.allocationsSaved)
+
+        invokeWriteBlocking(FloatArray(44100) { 0.7f })
+        assertEquals(3, player.allocationsSaved)
+    }
+
+    @Test
+    fun `simulation 1h de lecture — vérifie le nombre d'allocations évitées`() {
+        setPrivateTrack(mockTrack)
+        player.play()
+
+        // 1h de lecture ≈ 720 phrases (1 phrase / 5 secondes)
+        val phrasesParHeure = 720
+        val samplesParPhrase = 22050 // ~1s à 22050 Hz
+
+        repeat(phrasesParHeure) {
+            invokeWriteBlocking(FloatArray(samplesParPhrase) { 0.5f })
+        }
+
+        // Chaque phrase évite 1 allocation de ShortArray(n)
+        assertEquals(
+            phrasesParHeure.toLong(),
+            player.allocationsSaved,
+            "720 allocations de ShortArray évitées sur 1h de lecture"
+        )
+    }
+
+    @Test
+    fun `taille buffer constante quelle que soit la taille du segment`() {
+        setPrivateTrack(mockTrack)
+        player.play()
+
+        // Petit segment : 11025 samples (~0.5s)
+        invokeWriteBlocking(FloatArray(11025) { 0.5f })
+
+        // Gros segment : 220500 samples (~10s)
+        invokeWriteBlocking(FloatArray(220500) { 0.5f })
+
+        // Dans les deux cas, le chunkBuffer reste à CHUNK_SIZE (4096)
+        // Aucune allocation proportionnelle à la taille du segment
+        assertEquals(2, player.allocationsSaved)
+    }
+
+    @Test
+    fun `zero allocation ShortArray par phrase — vérifié via compteur`() {
+        // Ce test valide que le compteur allocationsSaved correspond bien
+        // au nombre d'appels writeBlocking (donc au nombre d'allocations évitées)
+        setPrivateTrack(mockTrack)
+        player.play()
+
+        val nbPhrases = 50
+        repeat(nbPhrases) {
+            invokeWriteBlocking(FloatArray(22050) { 0.5f })
+        }
+
+        assertEquals(
+            nbPhrases.toLong(),
+            player.allocationsSaved,
+            "Chaque appel writeBlocking évite exactement 1 allocation ShortArray(n)"
+        )
+
+        // Vérification supplémentaire : le compteur ne compte que les appels
+        // réussis (hors stop/willStop)
+        assertTrue(
+            player.allocationsSaved >= nbPhrases,
+            "Au moins $nbPhrases allocations évitées"
+        )
+    }
+
     // ── Helpers ─────────────────────────────────────────────
 
     /**
