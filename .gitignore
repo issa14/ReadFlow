@@ -65,5 +65,5 @@ node_modules/
 .kotlin/
 *.jks
 keystore.properties
-readflow-release.jks
+inktone-release.jks
 files/
