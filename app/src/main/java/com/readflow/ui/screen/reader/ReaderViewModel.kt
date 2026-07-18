@@ -388,7 +388,11 @@ class ReaderViewModel @Inject constructor(
         val currentIdx = _uiState.value.currentSentenceIndex
         if (currentIdx >= lastIdx) {
             val next = _uiState.value.currentChapterIndex + 1
-            if (next < book.totalChapters) loadChapter(next)
+            if (next < book.totalChapters) {
+                loadChapter(next)
+                // Relancer la lecture avec le nouveau chapitre
+                play()
+            }
         }
     }
 
