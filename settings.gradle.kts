@@ -1,4 +1,4 @@
-// ReadFlow — Project Settings
+// InkTone — Project Settings
 pluginManagement {
     repositories {
         google {
@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ReadFlow"
+rootProject.name = "InkTone"
 include(":app")

@@ -1,4 +1,4 @@
-name: CI — Build & Test
+name: CI — InkTone Build & Test
 
 on:
   pull_request:

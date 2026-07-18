@@ -1,6 +1,6 @@
 import java.util.Properties
 
-// ReadFlow — App module build configuration
+// InkTone — App module build configuration
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -17,11 +17,11 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.readflow"
+    namespace = "com.inktone"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.readflow"
+        applicationId = "com.inktone"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

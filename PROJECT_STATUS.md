@@ -1,4 +1,4 @@
-# 📊 ReadFlow — Suivi d'Avancement Projet
+# 📊 InkTone — Suivi d'Avancement Projet
 
 > Dernière mise à jour : 2026-07-18  
 > Phase actuelle : **Phase 6 — Beta & Release**  
@@ -59,7 +59,7 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 | 2.6 | `OnnxInferenceService` (bridge JNI) | ✅ Fait | 🔴 | Synthèse ONNX opérationnelle |
 | 2.7 | `PlaybackOrchestrator` (buffer +3, async) | ✅ Fait | 🔴 | 321 phrases, channel-based, fill coroutine |
 | 2.8 | `GaplessAudioPlayer` (AudioTrack) | ✅ Fait | 🔴 | PCM float, ConcurrentLinkedQueue, gapless |
-| 2.9 | `AudioPlaybackService` (MediaSessionService) | ✅ Fait | 🔴 | ReadFlowPlayer + MediaSession + notif foreground |
+| 2.9 | `AudioPlaybackService` (MediaSessionService) | ✅ Fait | 🔴 | InkTonePlayer + MediaSession + notif foreground |
 | 2.10 | `MediaSessionConnector` + `AudioFocusManager` | ✅ Fait | 🔴 | AudioFocus: appels → pause, notifs → ducking |
 | 2.11 | `AudioCacheManager` (LRU, eviction, purge) | ✅ Fait | 🟡 | LRU 30 Mo, TTL 10 min, intégré TtsRepository |
 | 2.12 | `SynthesisResult` sealed class + error handling | ✅ Fait | 🟡 | Fait avec OnnxInferenceService |
@@ -199,7 +199,7 @@ Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé pu
 ## 📂 Structure des Documents
 
 ```
-ReadFlow/
+InkTone/
 ├── 📄 README.md                 # Présentation, badges, quickstart
 ├── 📄 ARCHITECTURE.md           # Spécifications techniques (→ architecture.md)
 ├── 📄 PROJECT_STATUS.md         # Ce fichier — suivi d'avancement

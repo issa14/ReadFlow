@@ -1,8 +1,8 @@
-# Rapport de Prototype — Sherpa-ONNX VITS Piper pour ReadFlow
+# Rapport de Prototype — Sherpa-ONNX VITS Piper pour InkTone
 
 > **Date :** 2026-07-08  
 > **Phase :** 0 & 1 — Préparation, Prototype & Validation ONNX  
-> **Auteur :** Équipe ReadFlow  
+> **Auteur :** Équipe InkTone  
 
 ---
 

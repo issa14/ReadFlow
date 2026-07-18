@@ -1,4 +1,4 @@
-// ReadFlow — Root build configuration
+// InkTone — Root build configuration
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.android) apply false

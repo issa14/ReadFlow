@@ -1,4 +1,4 @@
-# 🔍 ReadFlow — Audit de Sécurité, Architecture & Performance
+# 🔍 InkTone — Audit de Sécurité, Architecture & Performance
 
 > **Date** : 2026-07-13  
 > **Auditeur** : Principal Software Engineer / Lead Architect / Expert Performance  
@@ -818,4 +818,4 @@ private fun applyFilters() {
 
 ---
 
-> **Conclusion** : Le projet ReadFlow est architecturalement sain (Clean Architecture, MVI, isolation native) mais souffre de **4 bugs critiques de concurrence** qui peuvent causer des crashs natifs ou des blocages en production. Les corrections proposées ci-dessus éliminent ces risques tout en améliorant la fluidité UI et en réduisant la pression mémoire. La priorité absolue est la correction de **C01** et **C02** avant toute bêta publique.
+> **Conclusion** : Le projet InkTone est architecturalement sain (Clean Architecture, MVI, isolation native) mais souffre de **4 bugs critiques de concurrence** qui peuvent causer des crashs natifs ou des blocages en production. Les corrections proposées ci-dessus éliminent ces risques tout en améliorant la fluidité UI et en réduisant la pression mémoire. La priorité absolue est la correction de **C01** et **C02** avant toute bêta publique.

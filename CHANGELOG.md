@@ -1,4 +1,4 @@
-# 📝 Changelog — ReadFlow
+# 📝 Changelog — InkTone
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
@@ -87,7 +87,7 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **FrenchSentenceSplitter** : 5 tests corrigés (M., Dr., etc., J. K., guillemets). Bug racine : `punctIndex` pointait sur l'espace après le point (BreakIterator inclut les blancs). Ajout de `findLastPunctuationBefore()` et `isInsideGuillemets()`
 - **`SystemClock.elapsedRealtime()`** : timestamps de lecture monotonic (P05)
 - **Code mort** : suppression de `ProgressEntity.currentWordOffset` (A06)
-- **Cold Start** : `LibraryViewModel.loadBooks()` déjà sur `Dispatchers.IO` ✅, `SettingsViewModel` DataStore sur `Dispatchers.IO` ✅, `ReadFlowApplication` minimal ✅
+- **Cold Start** : `LibraryViewModel.loadBooks()` déjà sur `Dispatchers.IO` ✅, `SettingsViewModel` DataStore sur `Dispatchers.IO` ✅, `InkToneApplication` minimal ✅
 - **Double ouverture EPUB** : `getChapter()` retourne sur cache hit sans `openPublication()` (P01) ✅
 - **`rememberTextMeasurer()`** : déjà sur `Dispatchers.Default` via `produceState` (C04) ✅
 - **`PlaybackOrchestrator.play()`** : déjà refactoré en sous-méthodes (A01) ✅

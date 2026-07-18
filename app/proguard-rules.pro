@@ -1,5 +1,5 @@
 # ============================================
-# ReadFlow — ProGuard / R8 Rules
+# InkTone — ProGuard / R8 Rules
 # ============================================
 
 # ---- Keep ALL JNI native methods (CRITICAL) ----
@@ -41,19 +41,19 @@
 -keep @dagger.hilt.android.HiltAndroidApp class *
 -keep @dagger.hilt.android.AndroidEntryPoint class *
 -keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
--keep class com.readflow.di.** { *; }
--keep class com.readflow.ReadFlowApplication { *; }
+-keep class com.inktone.di.** { *; }
+-keep class com.inktone.InkToneApplication { *; }
 
 # ---- Kotlin Serialization / Data Classes ----
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
 -keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
 -keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
--keep,includedescriptorclasses class com.readflow.**$$serializer { *; }
--keepclassmembers class com.readflow.** {
+-keep,includedescriptorclasses class com.inktone.**$$serializer { *; }
+-keepclassmembers class com.inktone.** {
     *** Companion;
 }
--keepclasseswithmembers class com.readflow.** {
+-keepclasseswithmembers class com.inktone.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
@@ -72,12 +72,12 @@
 -dontwarn androidx.lifecycle.**
 
 # ---- Keep data model classes (Room entities + domain) ----
--keep class com.readflow.domain.model.** { *; }
--keep class com.readflow.data.database.entity.** { *; }
+-keep class com.inktone.domain.model.** { *; }
+-keep class com.inktone.data.database.entity.** { *; }
 
 # ---- Keep ViewModels (Hilt-injected) ----
 -keep class * extends androidx.lifecycle.ViewModel { *; }
--keep class com.readflow.ui.screen.** { *; }
+-keep class com.inktone.ui.screen.** { *; }
 
 # ---- Keep Desugaring ----
 -keep class j$.time.** { *; }

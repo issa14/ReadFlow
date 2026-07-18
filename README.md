@@ -1,4 +1,4 @@
-# 📖 ReadFlow
+# 📖 InkTone
 
 > Lecteur d'ebooks Android avec synthèse vocale neuronale — 100% français, offline & cloud.
 
@@ -13,7 +13,7 @@
 
 ## 🎯 Vision
 
-**ReadFlow** est un lecteur d'ebooks Android inspiré de l'UX de **Moon+ Reader**, couplé à un moteur de **synthèse vocale neuronale** (Text-to-Speech) qui tourne **100% en local** sur l'appareil — aucune connexion internet requise.
+**InkTone** est un lecteur d'ebooks Android inspiré de l'UX de **Moon+ Reader**, couplé à un moteur de **synthèse vocale neuronale** (Text-to-Speech) qui tourne **100% en local** sur l'appareil — aucune connexion internet requise.
 
 Le surlignage dynamique **mot-à-mot** synchronisé avec la voix permet une expérience de lecture immersive unique.
 
@@ -69,8 +69,8 @@ Voir le document complet : **[📄 ARCHITECTURE.md](./architecture.md)**
 
 ```bash
 # Cloner le repo
-git clone https://github.com/issa14/ReadFlow.git
-cd ReadFlow
+git clone https://github.com/issa14/InkTone.git
+cd InkTone
 
 # Ouvrir dans Android Studio
 # → Sync Gradle
@@ -103,7 +103,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ## 📂 Structure
 
 ```
-ReadFlow/
+InkTone/
 ├── 📄 README.md
 ├── 📄 ARCHITECTURE.md          # Spécifications techniques
 ├── 📄 PROJECT_STATUS.md        # Suivi d'avancement
@@ -114,7 +114,7 @@ ReadFlow/
 │   └── 📄 prototype-report.md  # Rapport de prototype
 ├── 📁 app/                     # Code source Android
 │   └── 📁 src/
-│       ├── 📁 main/java/com/readflow/
+│       ├── 📁 main/java/com/inktone/
 │       ├── 📁 ui/          # Compose UI (library, reader, bookmark, search)
 │       │   ├── 📁 domain/      # UseCases + Models (Kotlin pur)
 │       │   ├── 📁 data/        # Room, Repositories, DAOs

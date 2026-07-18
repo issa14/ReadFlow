@@ -1,4 +1,4 @@
-# 🔬 ReadFlow — Diagnostic Cold Start & Plan de Refactoring
+# 🔬 InkTone — Diagnostic Cold Start & Plan de Refactoring
 
 > **Date** : 2026-07-13  
 > **Expertise** : Principal Android Performance Engineer  
@@ -19,7 +19,7 @@
 Timeline Cold Start :
 T+0ms   : Process created, Hilt components generated
 T+50ms  : Activity.onCreate(), setContent {}
-T+80ms  : ReadFlowTheme → hiltViewModel<SettingsViewModel>()
+T+80ms  : InkToneTheme → hiltViewModel<SettingsViewModel>()
 T+100ms : LibraryScreen → hiltViewModel<LibraryViewModel>()
 T+105ms : LibraryViewModel.init → viewModelScope.launch {
             bookRepository.getAllBooks()  ← 🔴 PREMIÈRE REQUÊTE = OUVERTURE DB SUR MAIN THREAD
@@ -50,7 +50,7 @@ private fun loadBooks() {
 
 **Fichier** : `Theme.kt:44`, `SettingsViewModel.kt:33-38`
 
-**Diagnostic** : `ReadFlowTheme` crée un `SettingsViewModel` via `hiltViewModel()` dès le premier `setContent`. Ce ViewModel lance immédiatement 6 collectes DataStore dans `init {}` — toutes sur `Dispatchers.Main`. DataStore lit le fichier de préférences (I/O disque), ce qui ajoute de la latence au premier frame.
+**Diagnostic** : `InkToneTheme` crée un `SettingsViewModel` via `hiltViewModel()` dès le premier `setContent`. Ce ViewModel lance immédiatement 6 collectes DataStore dans `init {}` — toutes sur `Dispatchers.Main`. DataStore lit le fichier de préférences (I/O disque), ce qui ajoute de la latence au premier frame.
 
 ```kotlin
 // SettingsViewModel.kt
@@ -92,7 +92,7 @@ private val LightColors = lightColorScheme(/* idem */)
 
 ### 🟡 EAGER #2 — Room Database : 12 entités, 12 DAOs
 
-**Fichier** : `ReadFlowDatabase.kt`
+**Fichier** : `InkToneDatabase.kt`
 
 **Diagnostic** : La DB a 12 entités et 12 DAOs. Room génère du code pour chaque. La première requête déclenche la validation du schéma complet. Ce n'est pas évitable mais l'impact est uniquement sur la première requête — d'où l'importance de la faire sur `Dispatchers.IO`.
 
@@ -117,15 +117,15 @@ Un **Baseline Profile** pré-compile en AOT les classes critiques du premier éc
 ```kotlin
 // baseline-prof.txt — à placer dans app/src/main/baseline-prof.txt
 // Classes critiques du premier frame (LibraryScreen)
-HSPLcom/readflow/ui/screen/library/LibraryScreenKt
-HSPLcom/readflow/ui/screen/library/LibraryViewModel
-HSPLcom/readflow/ui/navigation/ReadFlowNavGraphKt
-HSPLcom/readflow/ui/theme/ThemeKt
-HSPLcom/readflow/ui/theme/ColorKt
-HSPLcom/readflow/data/settings/SettingsRepository
-HSPLcom/readflow/data/database/ReadFlowDatabase
-HSPLcom/readflow/data/database/BookDao
-HSPLcom/readflow/di/AppModule
+HSPLcom/inktone/ui/screen/library/LibraryScreenKt
+HSPLcom/inktone/ui/screen/library/LibraryViewModel
+HSPLcom/inktone/ui/navigation/InkToneNavGraphKt
+HSPLcom/inktone/ui/theme/ThemeKt
+HSPLcom/inktone/ui/theme/ColorKt
+HSPLcom/inktone/data/settings/SettingsRepository
+HSPLcom/inktone/data/database/InkToneDatabase
+HSPLcom/inktone/data/database/BookDao
+HSPLcom/inktone/di/AppModule
 // Material3
 HSPLandroidx/compose/material3/MaterialThemeKt
 HSPLandroidx/compose/material3/ColorSchemeKt
@@ -232,7 +232,7 @@ private val LightColors by lazy {
 }
 ```
 
-**Gain** : Le `ColorScheme` n'est alloué qu'au premier accès (dans `ReadFlowTheme`), pas au chargement de la classe. ~5-15ms gagnés sur le classloading.
+**Gain** : Le `ColorScheme` n'est alloué qu'au premier accès (dans `InkToneTheme`), pas au chargement de la classe. ~5-15ms gagnés sur le classloading.
 
 ---
 
@@ -247,8 +247,8 @@ private val LightColors by lazy {
 ```kotlin
 @Provides
 @Singleton
-fun provideDatabase(@ApplicationContext context: Context): ReadFlowDatabase {
-    return Room.databaseBuilder(context, ReadFlowDatabase::class.java, "readflow.db")
+fun provideDatabase(@ApplicationContext context: Context): InkToneDatabase {
+    return Room.databaseBuilder(context, InkToneDatabase::class.java, "inktone.db")
         .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
         .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)  // ← Pas de checkpoint WAL au démarrage
         .fallbackToDestructiveMigration()
@@ -274,7 +274,7 @@ fun provideDatabase(@ApplicationContext context: Context): ReadFlowDatabase {
 ```
 T+0ms   : Process created
 T+50ms  : Activity.onCreate(), setContent {}
-T+60ms  : ReadFlowTheme → lazy ColorScheme + SettingsViewModel
+T+60ms  : InkToneTheme → lazy ColorScheme + SettingsViewModel
 T+70ms  : LibraryScreen → LibraryViewModel.init
 T+75ms  : viewModelScope.launch(Dispatchers.IO) { loadBooks() } ← NON BLOQUANT
 T+80ms  : 🟢 PREMIER FRAME RENDU — grille squelette affichée

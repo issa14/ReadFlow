@@ -1,6 +1,6 @@
-# Architecture Technique & Spécifications — ReadFlow
+# Architecture Technique & Spécifications — InkTone
 
-Ce document définit l'architecture technique, la structure des données et la feuille de route pour le développement de **ReadFlow**, un lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en français.
+Ce document définit l'architecture technique, la structure des données et la feuille de route pour le développement de **InkTone**, un lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en français.
 
 ---
 
@@ -8,7 +8,7 @@ Ce document définit l'architecture technique, la structure des données et la f
 
 **Stack :** Kotlin natif + Jetpack Compose + Clean Architecture (4 couches) + MVI
 
-Pour garantir une UI fluide à 60 FPS sans saccades pendant la génération audio, ReadFlow repose sur une **Clean Architecture à 4 couches** avec isolation via coroutines Kotlin et threads NDK pour l'inférence ONNX.
+Pour garantir une UI fluide à 60 FPS sans saccades pendant la génération audio, InkTone repose sur une **Clean Architecture à 4 couches** avec isolation via coroutines Kotlin et threads NDK pour l'inférence ONNX.
 
 ### Schéma Global — Clean Architecture (4 couches)
 
@@ -134,7 +134,7 @@ Fonctionnement 100% offline. L'application utilise le sandbox Android (`app-spec
 │   └── 📄 <bookId>_ch3_s13.wav
 │
 └── 📁 databases/                  # Room (SQLite)
-    └── 📄 readflow.db
+    └── 📄 inktone.db
 ```
 
 ### Modèle de Données Room (Complet)
@@ -289,7 +289,7 @@ CREATE VIRTUAL TABLE chapter_content_fts USING fts5(
 
 ---
 
-## 6. Feuille de Route — ReadFlow (Android / Français)
+## 6. Feuille de Route — InkTone (Android / Français)
 
 ### Phase 1 : Fondations & Validation Sherpa-ONNX (Semaines 1-4)
 * Mise en place du projet Android avec Hilt, Room, Compose Navigation.
@@ -338,14 +338,14 @@ CREATE VIRTUAL TABLE chapter_content_fts USING fts5(
 ## 7. Structure du Projet Android
 
 ```
-ReadFlow/
+InkTone/
 ├── 📁 app/
 │   ├── 📄 build.gradle.kts
 │   └── 📁 src/
 │       ├── 📁 main/
 │       │   ├── 📄 AndroidManifest.xml
-│       │   ├── 📁 java/com/readflow/
-│       │   │   ├── 📄 ReadFlowApplication.kt          # @HiltAndroidApp
+│       │   ├── 📁 java/com/inktone/
+│       │   │   ├── 📄 InkToneApplication.kt          # @HiltAndroidApp
 │       │   │   │
 │       │   │   ├── 📁 ui/                               # 🎨 UI Layer
 │       │   │   │   ├── 📁 theme/
@@ -353,7 +353,7 @@ ReadFlow/
 │       │   │   │   │   ├── 📄 Theme.kt
 │       │   │   │   │   └── 📄 Type.kt
 │       │   │   │   ├── 📁 navigation/
-│       │   │   │   │   └── 📄 ReadFlowNavGraph.kt       # Routes type-safe
+│       │   │   │   │   └── 📄 InkToneNavGraph.kt       # Routes type-safe
 │       │   │   │   ├── 📁 library/
 │       │   │   │   │   ├── 📄 LibraryScreen.kt
 │       │   │   │   │   └── 📄 LibraryViewModel.kt
@@ -406,7 +406,7 @@ ReadFlow/
 │       │   │   │   │   ├── 📄 BookmarkEntity.kt
 │       │   │   │   │   ├── 📄 SettingsEntity.kt
 │       │   │   │   │   └── 📄 ChapterContentFtsEntity.kt # FTS5 content
-│       │   │   │   │   └── 📄 ReadFlowDatabase.kt       # Room DB
+│       │   │   │   │   └── 📄 InkToneDatabase.kt       # Room DB
 │       │   │   │   ├── 📁 repository/
 │       │   │   │   │   ├── 📄 BookRepositoryImpl.kt
 │       │   │   │   │   ├── 📄 TtsRepositoryImpl.kt
@@ -447,7 +447,7 @@ ReadFlow/
 │       │       └── 📁 drawable/
 │       │
 │       └── 📁 test/                                      # Tests unitaires
-│           └── 📁 java/com/readflow/
+│           └── 📁 java/com/inktone/
 │               ├── 📁 domain/usecase/
 │               │   ├── 📄 ChunkTextUseCaseTest.kt
 │               │   └── 📄 PlaybackOrchestratorTest.kt

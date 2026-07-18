@@ -1,7 +1,7 @@
-# Third-Party Notices — ReadFlow
+# Third-Party Notices — InkTone
 
-This file lists all third-party libraries, frameworks, and assets used by ReadFlow,
-along with their respective licenses. ReadFlow itself is licensed under the [MIT License](LICENSE).
+This file lists all third-party libraries, frameworks, and assets used by InkTone,
+along with their respective licenses. InkTone itself is licensed under the [MIT License](LICENSE).
 
 ---
 
