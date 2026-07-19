@@ -9,6 +9,29 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### 2026-07-19 — Migration UPMC & Suppression Miro
+
+#### Changed — 🟢 Améliorations
+
+- **Modèle UPMC officiel** (`fr_FR-upmc-medium`, 73MB) remplace Miro (`fr_FR-miro-high`, 61MB)
+  - Source : [sherpa-onnx model zoo](https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models) (2023, PyTorch 1.13, IR v9)
+  - Compatible ONNX Runtime 1.27.0 — pas de SIGSEGV
+  - 2 locuteurs : **Jessica ♀** (sid=0, défaut) + **Pierre ♂** (sid=1)
+  - RTF ~0.33 sur Snapdragon 680
+
+- **Suppression totale de Miro**
+  - Modèle 61MB supprimé des assets
+  - `Voice.MIRO` retiré de l'enum
+  - Crash guard (`upmc_init_failed`) supprimé — plus de fallback
+  - `OnnxInferenceService` : -91 lignes nettes
+
+- **Fix voix Pierre**
+  - `JESSICA` placé avant `MIRO` dans l'enum → `resolveVoiceId(0)` trouve `"jessica"` et non `"miro"`
+  - Log `sid=$safeSid` dans `synthesize()` pour diagnostic
+
+- **Sync Settings → Reader**
+  - La voix sélectionnée dans les Settings est propagée au `ReaderViewModel.loadBook()`
+
 ### 2026-07-18 — Corrections critiques pré-release (session de refactoring)
 
 #### Fixed — 🔴 Critiques

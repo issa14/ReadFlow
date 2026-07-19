@@ -101,7 +101,7 @@ data class ReaderState(
 * **`ModelRepository` :** Gère le téléchargement, la vérification (SHA256) et le stockage du modèle ONNX français.
 
 ### E. Native Services — Android
-* **`OnnxInferenceService` :** Moteur d'inférence ONNX Runtime Mobile exécuté via JNI/NDK. Utilise **Sherpa-ONNX** (modèle VITS français, ~64 Mo, voix Miro) avec RTF ~0.24.
+* **`OnnxInferenceService` :** Moteur d'inférence ONNX Runtime Mobile exécuté via JNI/NDK. Utilise **Sherpa-ONNX** (modèle VITS français UPMC, ~73 Mo, 2 locuteurs : Jessica ♀ + Pierre ♂) avec RTF ~0.33.
 * **`EdgeTtsClient` :** Client WebSocket pour Microsoft Edge TTS (cloud, gratuit). Pipeline complet : authentification DRM (`Sec-MS-GEC`), SSML, réception MP3 binaire, décodage PCM. Retry exponentiel 3 tentatives + fallback automatique vers Piper en cas de perte réseau.
 * **`Mp3Decoder` :** Décodeur MP3→PCM via `MediaCodec` Android. Conversion `ShortArray`→`FloatArray` normalisée pour compatibilité avec le pipeline `GaplessAudioPlayer`.
 * **`AudioPlaybackService` :** `MediaSessionService` (Media3). Lecture audio gapless via **`AudioTrack`** (PCM 16-bit) avec `ReentrantLock` anti-use-after-free. Gestion pause/reprise instantanée (<50ms) avec pipeline de synthèse maintenue en vie.
@@ -280,12 +280,12 @@ CREATE VIRTUAL TABLE chapter_content_fts USING fts5(
 | **DI** | Hilt | 2.51+ |
 | **Base de données** | Room + FTS5 | 2.6+ |
 | **Parser EPUB** | Readium Kotlin Toolkit | 3.0+ |
-| **Audio Player** | AudioTrack (PCM gapless) + ExoPlayer Media3 (réserve) | AudioTrack = 0 gap, ExoPlayer pour évolutions futures |
-| **TTS Inference** | ONNX Runtime Android + **Sherpa-ONNX** (VITS) | Sherpa fournit les timestamps mot/milliseconde **nativement** |
-| **Phonémisation** | `piper-phonemize` compilé NDK ou tokenizer Sherpa intégré | Texte brut → phonèmes avant inférence ONNX |
+| **Audio Player** | AudioTrack (PCM gapless) | 0 gap entre phrases, latence frame-level |
+| **TTS Inference** | ONNX Runtime Android + **Sherpa-ONNX** (Piper VITS) | Sherpa fournit les timestamps phrase **nativement** |
+| **Phonémisation** | eSpeak-NG intégré dans Sherpa-ONNX | Texte brut → phonèmes avant inférence ONNX |
 | **Segmenteur phrases** | Règles custom Kotlin (français) | — |
 | **Background** | `MediaSessionService` (Media3) + `AudioTrack` | Notification, lockscreen, Bluetooth, gapless |
-| **Modèle vocal** | Sherpa-ONNX modèle VITS français | ~50-80 Mo, timestamps natifs mot/milliseconde |
+| **Modèle vocal** | Sherpa-ONNX modèle Piper VITS UPMC | 73 Mo, 2 locuteurs (Jessica ♀ + Pierre ♂), RTF ~0.33 |
 
 ---
 

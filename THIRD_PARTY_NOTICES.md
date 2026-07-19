@@ -32,7 +32,7 @@ along with their respective licenses. InkTone itself is licensed under the [MIT 
 |--------|---------|--------|
 | **Sherpa-ONNX** | Apache 2.0 | Copyright 2022-2024 The Sherpa-ONNX Authors. https://github.com/k2-fsa/sherpa-onnx |
 | **ONNX Runtime** | MIT | Copyright Microsoft Corporation. https://github.com/microsoft/onnxruntime |
-| **Piper VITS model** (`fr_FR-miro-high`) | Model-specific | Trained on public domain / open-licensed French speech data. https://github.com/rhasspy/piper |
+| **Piper VITS model** (`fr_FR-upmc-medium`) | Model-specific | Trained on public domain / open-licensed French speech data (UPMC). https://github.com/rhasspy/piper |
 
 ---
 

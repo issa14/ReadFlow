@@ -3,7 +3,7 @@
 > Dernière mise à jour : 2026-07-18  
 > Phase actuelle : **Phase 6 — Beta & Release**  
 > Progression globale : **~95%**  
-> Moteurs TTS : **Piper VITS `fr_FR-miro-high`** (local) + **Microsoft Edge TTS** (cloud, Vivienne & Henri)  
+> Moteurs TTS : **Piper VITS `fr_FR-upmc-medium`** — 2 locuteurs Jessica ♀ + Pierre ♂ (local) + **Microsoft Edge TTS** (cloud, Vivienne & Henri)  
 > Tests unitaires : **110 tests, 0 échec** (12 fichiers)  
 > Score audit : **8.0/10** (corrigé depuis 6.2/10)
 
@@ -63,7 +63,7 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 | 2.10 | `MediaSessionConnector` + `AudioFocusManager` | ✅ Fait | 🔴 | AudioFocus: appels → pause, notifs → ducking |
 | 2.11 | `AudioCacheManager` (LRU, eviction, purge) | ✅ Fait | 🟡 | LRU 30 Mo, TTL 10 min, intégré TtsRepository |
 | 2.12 | `SynthesisResult` sealed class + error handling | ✅ Fait | 🟡 | Fait avec OnnxInferenceService |
-| 2.13 | Test intégration : lecture TTS chapitre complet | ✅ Fait | 🔴 | Validé — Piper Miro, RTF ~0.24 |
+| 2.13 | Test intégration : lecture TTS chapitre complet | ✅ Fait | 🔴 | Validé — Piper UPMC, RTF ~0.33, 2 locuteurs |
 
 ### Phase 3 — UI & Intégration ✅ COMPLÉTÉE (Objectif : Semaines 11-16)
 
@@ -99,7 +99,7 @@ Lecteur d'ebooks Android (EPUB2/EPUB3) avec synthèse vocale neuronale locale en
 
 | # | Tâche | Statut | Priorité | Notes |
 |---|---|---|---|---|
-| 5.1 | Profilage CPU/Batterie (Android Profiler) | ✅ Fait | 🔴 | RTF ~0.24, RAM ~150 Mo, APK 120 Mo debug / 106 Mo release |
+| 5.1 | Profilage CPU/Batterie (Android Profiler) | ✅ Fait | 🔴 | RTF ~0.33, RAM ~150 Mo, APK 120 Mo debug / 106 Mo release |
 | 5.2 | FTS5 `sentence_fts` — recherche in-book | ✅ Fait | 🔴 | FTS4 virtual table, SearchScreen avec wildcard MATCH |
 | 5.3 | Process Death : `SavedStateHandle` + restoration | ✅ Fait | 🔴 | Sauvegarde chapter/sentence/voice/theme/font |
 | 5.4 | Gestion EPUB corrompus / erreurs parsing | ✅ Fait | 🟡 | try/catch avec messages explicites + nettoyage fichiers |
@@ -137,10 +137,11 @@ Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé pu
 - RTF ~3-4, instable
 - Voix `ff_siwis` (sid=30) causait des crashs
 
-**Retour à Piper VITS** avec `fr_FR-miro-high` (61 Mo) :
-- RTF ~0.24, stable, pas de crash
-- Voix masculine FR, volume corrigé (gain 1.8x)
-- Nettoyage ponctuation multiples avant synthèse
+**Retour à Piper VITS** avec `fr_FR-upmc-medium` (73 Mo, officiel sherpa-onnx model zoo 2023) :
+- RTF ~0.33, stable, pas de crash
+- 2 locuteurs : Jessica ♀ (sid=0, défaut) + Pierre ♂ (sid=1)
+- Miro supprimé définitivement (25c66dc)
+- Log SID dans synthesize() pour diagnostic
 
 ---
 
@@ -157,10 +158,10 @@ Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé pu
 | # | Risque | Probabilité | Impact | Mitigation |
 |---|---|---|---|---|
 | R1 | Sherpa-ONNX timestamps non fiables en français | Faible | Critique | ✅ Résolu — alignement phrase par phrase OK |
-| R2 | RTF > 1.0 sur chipsets milieu de gamme | Faible | Majeur | ✅ Résolu — Piper Miro RTF ~0.24 sur SD680 |
+| R2 | RTF > 1.0 sur chipsets milieu de gamme | Faible | Majeur | ✅ Résolu — Piper UPMC RTF ~0.33 sur SD680 |
 | R3 | Readium échoue sur certains EPUB3 complexes | Moyenne | Majeur | À tester avec plus d'EPUBs |
 | R4 | Phonémisation FR de mauvaise qualité | Faible | Majeur | ✅ Résolu — eSpeak-NG + Piper OK |
-| R5 | Kokoro OOM/SIGSEGV sur 4 Go RAM | — | — | ✅ Résolu — Retour à Piper VITS (61 Mo) |
+| R5 | Kokoro OOM/SIGSEGV sur 4 Go RAM | — | — | ✅ Résolu — Retour à Piper VITS UPMC (73 Mo) |
 
 ---
 
@@ -168,25 +169,34 @@ Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé pu
 
 | Métrique | Cible | Actuel |
 |---|---|---|
-| RTF (Real-Time Factor) | < 1.0 | **~0.24** (Piper Miro) |
+| RTF (Real-Time Factor) | < 1.0 | **~0.33** (Piper UPMC) |
 | Temps synthèse par phrase | < 500ms | ~100-300ms |
 | Gap inter-phrases | 0ms | 0ms (gapless) |
 | Taille APK (debug) | < 200 Mo | **120 Mo** |
-| Taille modèle ONNX | < 80 Mo | **61 Mo** (Piper Miro) |
-| Tests unitaires | > 70% (domain) | **43 tests** (0 échec) |
+| Taille modèle ONNX | < 80 Mo | **73 Mo** (Piper UPMC) |
+| Tests unitaires | > 70% (domain) | **110 tests** (0 échec) |
 
 ---
 
 ## 📝 Notes de Session
 
+### 2026-07-19
+- **Suppression Miro** : modèle 61MB retiré, fallbacks nettoyés (25c66dc)
+- **UPMC officiel** : modèle sherpa-onnx model zoo (73MB, PyTorch 1.13, IR v9) compatible ONNX RT 1.27
+- **2 locuteurs** : Jessica ♀ (sid=0) + Pierre ♂ (sid=1)
+- **Fix voix Pierre** : `JESSICA` avant `MIRO` dans l'enum → `resolveVoiceId(0)` trouve bien `"jessica"`
+- **Log SID** : `synthesize()` trace `sid=$safeSid` pour diagnostic
+- **Sync Settings→Reader** : la voix sélectionnée dans Settings est propagée au `ReaderViewModel.loadBook()`
+- **OnnxInferenceService** : -91 lignes nettes, plus de `loadedModelDir`, crash guard, ni fallback
+- **Prochaine étape :** Documentation → Beta fermée → Play Store
+
 ### 2026-07-18
 - **Audit professionnel complété** : 17 bugs/optimisations corrigés (3 critiques, 6 hautes, 3 moyennes, 5 optimisations)
-- **43 tests unitaires** : 0 échec, couverture des classes critiques (PlaybackOrchestrator, OnnxInferenceService, ReaderViewModel)
+- **110 tests unitaires** : 0 échec, couverture des classes critiques (PlaybackOrchestrator, OnnxInferenceService, ReaderViewModel)
 - **FrenchSentenceSplitter** : 10/10 tests corrigés (abréviations M., Dr., etc., initiales, guillemets)
 - **Cold Start** : corrections confirmées (Dispatchers.IO déjà en place) + baseline-prof.txt
 - **CI/CD** : workflow GitHub Actions (lint + test + assemble)
 - **Documentation** : CHANGELOG, PROJECT_STATUS, Plan_d_action, COLD_START_AUDIT mis à jour
-- **Prochaine étape :** Beta fermée 10-20 lecteurs → Publication Play Store
 
 ### 2026-07-07
 - Architecture finalisée et auditée

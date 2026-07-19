@@ -83,7 +83,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ### Premier lancement
 
-1. Le modèle vocal français (~61 Mo) est inclus dans l'APK — **aucun téléchargement requis**
+1. Le modèle vocal français UPMC (~73 Mo, 2 voix) est inclus dans l'APK — **aucun téléchargement requis**
 2. Importer un fichier `.epub` via le bouton "+" ou le partage Android
 3. Ouvrir le livre → appuyer sur ▶️ Play
 4. La synthèse démarre — le texte défile en temps réel
@@ -94,9 +94,9 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 → **[📊 PROJECT_STATUS.md](./PROJECT_STATUS.md)** — Suivi détaillé des tâches, bloqueurs, risques et métriques.
 
-**Phase actuelle :** Phase 4 — Polish & Release  
-**Progression :** ~80%  
-**Moteurs TTS :** Piper VITS `fr_FR-miro-high` (local) + Microsoft Edge TTS (cloud, Vivienne & Henri)
+**Phase actuelle :** Phase 6 — Beta & Release  
+**Progression :** ~95%  
+**Moteurs TTS :** Piper VITS `fr_FR-upmc-medium` 2 locuteurs — Jessica ♀ + Pierre ♂ (local) + Microsoft Edge TTS (cloud, Vivienne & Henri)
 
 ---
 
