@@ -18,6 +18,7 @@ import com.inktone.data.database.InkToneDatabase
 import com.inktone.data.database.ReadingProgressDao
 import com.inktone.data.database.ReadingSessionDao
 import com.inktone.data.database.RecentBookDao
+import com.inktone.data.database.RichBlockCacheDao
 import com.inktone.data.database.SearchDao
 import com.inktone.data.database.SentenceCacheDao
 import com.inktone.data.repository.BookRepositoryImpl
@@ -92,6 +93,9 @@ object AppModule {
 
     @Provides
     fun provideBookProgressDao(db: InkToneDatabase): BookProgressDao = db.bookProgressDao()
+
+    @Provides
+    fun provideRichBlockCacheDao(db: InkToneDatabase): RichBlockCacheDao = db.richBlockCacheDao()
 
     @Provides
     @Singleton

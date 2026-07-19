@@ -471,7 +471,7 @@ fun ReaderScreen(
             dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)) }
         ) {
             ChapterPicker(
-                totalChapters = book.totalChapters,
+                tocEntries = book.tocEntries,
                 currentChapter = state.currentChapterIndex,
                 onSelect = { idx ->
                     viewModel.goToChapter(idx)

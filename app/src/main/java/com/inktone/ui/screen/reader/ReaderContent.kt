@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -18,31 +19,46 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.inktone.data.database.entity.BookmarkEntity
 import com.inktone.data.database.entity.HighlightEntity
 import com.inktone.domain.model.Chapter
+import com.inktone.domain.model.RichBlock
 import com.inktone.domain.model.Sentence
+import com.inktone.domain.model.TextSpan
+import com.inktone.domain.usecase.FrenchSentenceSplitter
 import com.inktone.service.audio.PlaybackState
 import com.inktone.service.audio.PlaybackStatus
 import com.inktone.ui.theme.OpenDyslexicFamily
@@ -50,6 +66,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.io.File
 
 enum class ReadingMode { PAGED, SCROLL }
 
@@ -399,6 +416,15 @@ private fun ScrollContent(
 ) {
     val lazyListState = rememberLazyListState()
 
+    // Points d'ancrage pour les blocs purement structurels (image, séparateur) qui n'ont
+    // aucun texte dans le flux de phrases — ils peuvent donc s'intercaler sans risque de
+    // duplication ni de désynchronisation avec le surlignage TTS (qui reste piloté par
+    // Sentence/activeIdx, inchangé). Les blocs textuels (titre, citation, poème) restent
+    // rendus via le flux de phrases existant pour préserver la sélection/surlignage/signets.
+    val richBlockAnchors = remember(chapter.index, chapter.richBlocks) {
+        computeStructuralBlockAnchors(chapter.richBlocks)
+    }
+
     LaunchedEffect(activeIdx) {
         if (activeIdx in sentences.indices) {
             lazyListState.animateScrollToItem(
@@ -435,24 +461,37 @@ private fun ScrollContent(
                 Spacer(Modifier.height(28.dp))
             }
 
+            // Blocs structurels (image, séparateur) situés avant la première phrase
+            richBlockAnchors[0]?.forEach { block ->
+                item(key = "richblock_${block.index}") {
+                    RichBlockRenderer(block = block, textStyle = textStyle, textColor = textColor, accentColor = accentColor)
+                }
+            }
+
             itemsIndexed(
                 items = sentences,
                 key = { index, _ -> index }
             ) { index, sentence ->
-                SelectableSentence(
-                    index = index,
-                    sentence = sentence,
-                    activeIdx = activeIdx,
-                    isSpeaking = isSpeaking,
-                    textStyle = textStyle,
-                    textColor = textColor,
-                    accentColor = accentColor,
-                    playbackState = playbackState,
-                    onTextSelected = onTextSelected,
-                    onDismiss = onSelectionDismissed,
-                    highlights = highlights,
-                    bookmarks = bookmarks
-                )
+                Column {
+                    SelectableSentence(
+                        index = index,
+                        sentence = sentence,
+                        activeIdx = activeIdx,
+                        isSpeaking = isSpeaking,
+                        textStyle = textStyle,
+                        textColor = textColor,
+                        accentColor = accentColor,
+                        playbackState = playbackState,
+                        onTextSelected = onTextSelected,
+                        onDismiss = onSelectionDismissed,
+                        highlights = highlights,
+                        bookmarks = bookmarks
+                    )
+
+                    richBlockAnchors[index + 1]?.forEach { block ->
+                        RichBlockRenderer(block = block, textStyle = textStyle, textColor = textColor, accentColor = accentColor)
+                    }
+                }
             }
 
             // Déclencheur automatique inter-chapitres
@@ -745,4 +784,186 @@ private fun ActiveSentenceText(
         style = style,
         modifier = modifier
     )
+}
+
+// ─────────────────────────────────────────────────────
+//  RENDU SÉMANTIQUE — RichBlock (structure EPUB préservée)
+// ─────────────────────────────────────────────────────
+
+/**
+ * Rendu typographique d'un [RichBlock] (titre, citation, poème, image, séparateur).
+ *
+ * Coexiste avec le rendu par [Sentence] (surlignage TTS mot-à-mot, sélection, signets) :
+ * seuls les blocs purement structurels sans contrepartie textuelle dans le flux de phrases
+ * ([RichBlock.EpubImage], [RichBlock.SectionBreak]) sont actuellement intercalés dans
+ * [ScrollContent] (voir [computeStructuralBlockAnchors]) — les blocs textuels restent
+ * disponibles ici pour un usage futur sans risquer de dupliquer le texte déjà rendu par
+ * phrase ou de désynchroniser la sélection/le surlignage.
+ */
+@Composable
+fun RichBlockRenderer(
+    block: RichBlock,
+    textStyle: TextStyle,
+    textColor: Color,
+    accentColor: Color
+) {
+    when (block) {
+        is RichBlock.Heading -> {
+            val scale = when (block.level) {
+                1 -> 1.5f
+                2 -> 1.3f
+                3 -> 1.15f
+                else -> 1.05f
+            }
+            Spacer(Modifier.height(if (block.level <= 2) 24.dp else 16.dp))
+            Text(
+                text = buildSpanString(block.spans, textColor),
+                style = textStyle.copy(
+                    fontSize = textStyle.fontSize * scale,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.3).sp
+                )
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        is RichBlock.Paragraph -> {
+            Text(
+                text = buildSpanString(block.spans, textColor),
+                style = textStyle,
+                modifier = Modifier.padding(vertical = 2.dp)
+            )
+        }
+
+        is RichBlock.BlockQuote -> {
+            Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .fillMaxHeight()
+                        .background(accentColor.copy(alpha = 0.4f))
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = buildSpanString(block.spans, textColor.copy(alpha = 0.75f)),
+                    style = textStyle,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+        }
+
+        is RichBlock.PoemLine -> {
+            Text(
+                text = buildSpanString(block.spans, textColor),
+                style = textStyle.copy(
+                    textAlign = TextAlign.Center,
+                    fontStyle = FontStyle.Italic
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+            )
+        }
+
+        is RichBlock.EpubImage -> {
+            val imageFile = remember(block.href) { File(block.href) }
+            if (imageFile.exists()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageFile)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = block.alt.ifBlank { null },
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                }
+            }
+        }
+
+        is RichBlock.SectionBreak -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 20.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(3) {
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(textColor.copy(alpha = 0.25f))
+                    )
+                    if (it < 2) Spacer(Modifier.width(8.dp))
+                }
+            }
+        }
+
+        is RichBlock.Footnote -> { /* Ignoré dans le flux principal */ }
+    }
+}
+
+private fun buildSpanString(spans: List<TextSpan>, baseColor: Color): AnnotatedString {
+    return buildAnnotatedString {
+        spans.forEach { span ->
+            withStyle(
+                SpanStyle(
+                    fontWeight = if (span.bold) FontWeight.Bold else FontWeight.Normal,
+                    fontStyle = if (span.italic) FontStyle.Italic else FontStyle.Normal,
+                    baselineShift = if (span.superscript) BaselineShift.Superscript else BaselineShift.None,
+                    fontSize = if (span.superscript) TextUnit(0.75f, TextUnitType.Em) else TextUnit.Unspecified,
+                    color = baseColor
+                )
+            ) {
+                append(span.text)
+            }
+            if (span.noteRef != null) append(" ")  // Espace après référence footnote
+        }
+    }
+}
+
+/**
+ * Associe à chaque bloc purement structurel ([RichBlock.EpubImage], [RichBlock.SectionBreak])
+ * le nombre de phrases qui le précèdent dans le chapitre — permet de l'intercaler au bon
+ * endroit dans le flux de [Sentence] sans avoir besoin d'offsets de caractères partagés
+ * entre les deux segmentations (HTML sémantique vs texte aplati pour le TTS), qui sont
+ * calculées indépendamment et ne s'alignent pas caractère-à-caractère.
+ *
+ * Approximatif par nature (les deux segmentations peuvent découper légèrement différemment),
+ * mais suffisant pour un placement visuel — contrairement à une désynchronisation du
+ * surlignage TTS ou une duplication de texte, une image décalée d'une phrase est un
+ * défaut mineur et sans risque.
+ */
+private fun computeStructuralBlockAnchors(richBlocks: List<RichBlock>): Map<Int, List<RichBlock>> {
+    val anchors = mutableMapOf<Int, MutableList<RichBlock>>()
+    var sentenceCursor = 0
+    for (block in richBlocks) {
+        when (block) {
+            is RichBlock.EpubImage, is RichBlock.SectionBreak -> {
+                anchors.getOrPut(sentenceCursor) { mutableListOf() }.add(block)
+            }
+            is RichBlock.Paragraph -> sentenceCursor += estimateSentenceCount(block.spans)
+            is RichBlock.Heading -> sentenceCursor += estimateSentenceCount(block.spans)
+            is RichBlock.BlockQuote -> sentenceCursor += estimateSentenceCount(block.spans)
+            is RichBlock.PoemLine -> sentenceCursor += 1
+            is RichBlock.Footnote -> {}
+        }
+    }
+    return anchors
+}
+
+private fun estimateSentenceCount(spans: List<TextSpan>): Int {
+    val text = spans.joinToString("") { it.text }
+    if (text.isBlank()) return 0
+    return FrenchSentenceSplitter.split(text).size.coerceAtLeast(1)
 }

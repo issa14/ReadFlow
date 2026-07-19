@@ -1,7 +1,9 @@
 package com.inktone.ui.screen.reader
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
@@ -67,16 +69,36 @@ fun ReaderTopBar(
 
 @Composable
 fun ChapterPicker(
-    totalChapters: Int,
+    tocEntries: List<com.inktone.domain.model.TocEntry>,
     currentChapter: Int,
     onSelect: (Int) -> Unit
 ) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .heightIn(max = 480.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
         Text("Table des matières", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(bottom = 12.dp))
-        for (i in 0 until totalChapters) {
-            val isCurrent = i == currentChapter
-            Surface(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), color = if (isCurrent) MaterialTheme.colorScheme.ttsActive.copy(alpha = 0.15f) else Color.Transparent, shape = RoundedCornerShape(8.dp), onClick = { onSelect(i) }) {
-                Text("Chapitre ${i + 1}", color = if (isCurrent) MaterialTheme.colorScheme.ttsActive else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp))
+        tocEntries.forEach { entry ->
+            val isCurrent = entry.index == currentChapter
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = (entry.level * 16).dp, top = 2.dp, bottom = 2.dp),
+                color = if (isCurrent) MaterialTheme.colorScheme.ttsActive.copy(alpha = 0.15f) else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+                onClick = { onSelect(entry.index) }
+            ) {
+                Text(
+                    entry.title,
+                    color = if (isCurrent) MaterialTheme.colorScheme.ttsActive else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+                )
             }
         }
         Spacer(Modifier.height(24.dp))

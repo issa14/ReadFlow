@@ -3,6 +3,20 @@ package com.inktone.data.epub
 import org.readium.r2.shared.publication.Link
 
 /**
+ * Plage spine avec ancres HTML de début/fin, pour les entrées TOC qui partagent
+ * un même fichier spine (ex : `#part1`, `#part2` dans un seul fichier XHTML).
+ *
+ * [startAnchor] / [endAnchor] ne sont renseignées que lorsqu'elles délimitent une
+ * sous-section à l'intérieur du premier, respectivement dernier, fichier de la plage —
+ * sinon le fichier est utilisé dans son intégralité.
+ */
+data class AnchoredRange(
+    val spineRange: IntRange,
+    val startAnchor: String?,
+    val endAnchor: String?
+)
+
+/**
  * Index de résolution entre les entrées du TOC et les positions du spine.
  *
  * Le spine ([publication.readingOrder]) est une liste plate de tous les fichiers
@@ -75,6 +89,38 @@ class SpineIndex(private val spine: List<Link>) {
             ?: index.entries.find { (key, _) ->
                 key.endsWith(href) || href.endsWith(key)
             }?.value
+    }
+
+    /**
+     * Comme [resolveRange], mais conserve les ancres HTML (`#anchor`) des liens TOC de
+     * début/fin de plage.
+     *
+     * Utile quand plusieurs entrées TOC pointent vers le **même fichier spine** avec des
+     * ancres différentes (ex : EPUB académiques avec sections `#part1`, `#part2` dans un seul
+     * fichier XHTML) — sans ça, chaque entrée renverrait la plage entière, dupliquant le contenu.
+     */
+    fun resolveAnchoredRange(tocLink: Link, nextTocLink: Link? = null): AnchoredRange {
+        val rawHref = tocLink.href.toString()
+        val startAnchor = rawHref.substringAfter("#", "").takeIf { it.isNotBlank() }
+        val href = normalizeHref(rawHref)
+        val start = lookupIndex(href) ?: return AnchoredRange(IntRange.EMPTY, null, null)
+
+        val endExclusive: Int
+        val endAnchor: String?
+        if (nextTocLink != null) {
+            val nextRawHref = nextTocLink.href.toString()
+            val nextAnchor = nextRawHref.substringAfter("#", "").takeIf { it.isNotBlank() }
+            val nextHref = normalizeHref(nextRawHref)
+            val nextIndex = lookupIndex(nextHref) ?: spine.size
+            // Ancre de fin uniquement pertinente si le TOC suivant pointe vers LE MÊME fichier spine
+            endAnchor = if (nextIndex == start) nextAnchor else null
+            endExclusive = nextIndex
+        } else {
+            endExclusive = spine.size
+            endAnchor = null
+        }
+
+        return AnchoredRange(start until endExclusive, startAnchor, endAnchor)
     }
 
     companion object {

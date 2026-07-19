@@ -14,6 +14,7 @@ import com.inktone.data.database.entity.PronunciationRule
 import com.inktone.data.database.entity.ReadingProgress
 import com.inktone.data.database.entity.ReadingSessionEntity
 import com.inktone.data.database.entity.RecentBookEntity
+import com.inktone.data.database.entity.RichBlockCacheEntity
 import com.inktone.data.database.entity.SentenceCacheEntity
 import com.inktone.data.database.entity.SentenceFts
 
@@ -72,9 +73,10 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         HighlightEntity::class,
         ReadingSessionEntity::class,
         RecentBookEntity::class,
-        BookProgressEntity::class
+        BookProgressEntity::class,
+        RichBlockCacheEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class InkToneDatabase : RoomDatabase() {
@@ -90,4 +92,5 @@ abstract class InkToneDatabase : RoomDatabase() {
     abstract fun readingSessionDao(): ReadingSessionDao
     abstract fun recentBookDao(): RecentBookDao
     abstract fun bookProgressDao(): BookProgressDao
+    abstract fun richBlockCacheDao(): RichBlockCacheDao
 }

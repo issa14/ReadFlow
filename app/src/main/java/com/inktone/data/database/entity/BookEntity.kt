@@ -13,5 +13,10 @@ data class BookEntity(
     val coverPath: String?,
     val totalChapters: Int,
     val language: String,
-    val addedAt: Long
+    val addedAt: Long,
+    val tocJson: String = "[]",       // List<TocEntry> sérialisée en JSON
+    val publisher: String? = null,
+    val publishedDate: String? = null,
+    val subjects: String = "[]",      // List<String> sérialisée en JSON
+    val isbn: String? = null
 )

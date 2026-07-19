@@ -9,5 +9,10 @@ data class Book(
     val coverPath: String? = null,
     val totalChapters: Int,
     val language: String,
-    val addedAt: Long
+    val addedAt: Long,
+    val tocEntries: List<TocEntry> = emptyList(),
+    val publisher: String? = null,
+    val publishedDate: String? = null,
+    val subjects: List<String> = emptyList(),
+    val isbn: String? = null
 )
