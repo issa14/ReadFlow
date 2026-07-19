@@ -197,6 +197,18 @@ class ReaderViewModel @Inject constructor(
             }.collect()
         }
 
+        // Navigation vers une position précise depuis Recherche/Signets (retour d'écran)
+        viewModelScope.launch {
+            savedState.getStateFlow<Int?>("jumpChapter", null).collect { jumpChapter ->
+                val jumpSentence = savedState.get<Int>("jumpSentence")
+                if (jumpChapter != null && jumpSentence != null) {
+                    savedState.remove<Int>("jumpChapter")
+                    savedState.remove<Int>("jumpSentence")
+                    loadChapter(jumpChapter, jumpSentence)
+                }
+            }
+        }
+
         // Tooltip premier lancement reader
         viewModelScope.launch {
             if (!settingsRepository.hasSeenReaderTooltip.first()) {
@@ -400,10 +412,10 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    fun goToChapter(index: Int) {
+    fun goToChapter(index: Int, sentenceIndex: Int = 0) {
         if (_uiState.value.isLoadingChapter) return
         val book = currentBook ?: return
-        if (index in 0 until book.totalChapters) loadChapter(index)
+        if (index in 0 until book.totalChapters) loadChapter(index, sentenceIndex)
     }
 
     fun play() {
