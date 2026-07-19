@@ -648,7 +648,11 @@ class PlaybackOrchestrator @Inject constructor(
                     Log.d(TAG, "SampleRate player ajusté: ${player.sampleRate} → ${result.sampleRate}")
                     player.sampleRate = result.sampleRate
                 }
-                _state.value = State.Playing
+                // Ne pas écraser un état d'erreur déjà posé par le pipeline de synthèse
+                // (course possible : le producteur peut détecter le seuil d'erreurs
+                // consécutives pendant que le consommateur traite encore le 1er résultat).
+                // .update{} est atomique (CAS) — évite le check-then-act d'un simple if.
+                _state.update { current -> if (current is State.Error) current else State.Playing }
                 player.play()
                 started = true
                 updatePlaybackState(startFrom, sentences.getOrNull(startFrom)?.text ?: "", total,
