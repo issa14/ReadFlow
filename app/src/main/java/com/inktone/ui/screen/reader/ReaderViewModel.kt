@@ -524,12 +524,12 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    fun addHighlight(sentenceIndex: Int, selectedText: String, startOffset: Int, endOffset: Int) {
+    fun addHighlight(sentenceIndex: Int, selectedText: String, startOffset: Int, endOffset: Int, colorHex: String = "#FFEB3D") {
         val book = currentBook ?: return
         val chapterIdx = _uiState.value.currentChapterIndex
         viewModelScope.launch {
             try {
-                val result = annotationsUseCase.addHighlight(book.id, chapterIdx, sentenceIndex, selectedText, startOffset, endOffset)
+                val result = annotationsUseCase.addHighlight(book.id, chapterIdx, sentenceIndex, selectedText, startOffset, endOffset, colorHex)
                 if (result is com.inktone.domain.usecase.AnnotationResult.Success) {
                     _uiState.update { it.copy(lastAction = result.message) }
                 }

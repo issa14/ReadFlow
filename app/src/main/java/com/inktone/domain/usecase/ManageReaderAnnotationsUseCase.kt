@@ -77,7 +77,8 @@ class ManageReaderAnnotationsUseCase @Inject constructor(
         sentenceIndex: Int,
         selectedText: String,
         startOffset: Int,
-        endOffset: Int
+        endOffset: Int,
+        colorHex: String = "#FFEB3D"
     ): AnnotationResult {
         highlightDao.insertHighlight(
             HighlightEntity(
@@ -87,7 +88,7 @@ class ManageReaderAnnotationsUseCase @Inject constructor(
                 startOffset = startOffset,
                 endOffset = endOffset,
                 selectedText = selectedText,
-                colorHex = "#FFEB3D"
+                colorHex = colorHex
             )
         )
         return AnnotationResult.Success("Surlignage ajouté")

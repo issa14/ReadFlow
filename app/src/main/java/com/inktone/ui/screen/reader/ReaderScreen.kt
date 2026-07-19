@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -13,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -85,6 +87,11 @@ fun ReaderScreen(
     var showNoteDialog by remember { mutableStateOf(false) }
     var noteDialogSentenceIdx by remember { mutableStateOf(-1) }
     var noteDialogSelectedText by remember { mutableStateOf("") }
+    var showColorPicker by remember { mutableStateOf(false) }
+    var colorPickerSentenceIdx by remember { mutableStateOf(-1) }
+    var colorPickerSelectedText by remember { mutableStateOf("") }
+    var colorPickerStartOffset by remember { mutableStateOf(0) }
+    var colorPickerEndOffset by remember { mutableStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -240,13 +247,12 @@ fun ReaderScreen(
                 onHighlight = {
                     val s = selectionState ?: return@SelectionActionBar
                     val sentence = chapter?.sentences?.getOrNull(s.sentenceIndex) ?: return@SelectionActionBar
-                    viewModel.addHighlight(
-                        sentenceIndex = s.sentenceIndex,
-                        selectedText = s.selectedText,
-                        startOffset = sentence.startOffset,
-                        endOffset = sentence.endOffset
-                    )
+                    colorPickerSentenceIdx = s.sentenceIndex
+                    colorPickerSelectedText = s.selectedText
+                    colorPickerStartOffset = sentence.startOffset
+                    colorPickerEndOffset = sentence.endOffset
                     selectionState = null
+                    showColorPicker = true
                 },
                 onNote = {
                     val s = selectionState ?: return@SelectionActionBar
@@ -261,6 +267,40 @@ fun ReaderScreen(
                     selectionState = null
                 }
             )
+        }
+
+        // ── Mini color picker pour les surlignages ───
+        if (showColorPicker) {
+            val colors = listOf("#FFEB3D", "#90EE90", "#ADD8E6", "#FFB6C1", "#FFA500")
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 64.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = bgColor,
+                shadowElevation = 4.dp
+            ) {
+                Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    colors.forEach { hex ->
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(android.graphics.Color.parseColor(hex)))
+                                .clickable {
+                                    viewModel.addHighlight(
+                                        sentenceIndex = colorPickerSentenceIdx,
+                                        selectedText = colorPickerSelectedText,
+                                        startOffset = colorPickerStartOffset,
+                                        endOffset = colorPickerEndOffset,
+                                        colorHex = hex
+                                    )
+                                    showColorPicker = false
+                                }
+                        )
+                    }
+                }
+            }
         }
 
         // ── Captions TTS (accessibilité) ─────────────
