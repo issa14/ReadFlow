@@ -956,7 +956,9 @@ private fun NavDrawerContent(
                     onNavigate(NavigationDestination.ABOUT)
                 }
                 DrawerFooterBtn("Thème", Icons.Default.Palette) { onThemeToggle() }
-                DrawerFooterBtn("Debug", Icons.Default.Build) { onDebug() }
+                if (com.inktone.BuildConfig.DEBUG) {
+                    DrawerFooterBtn("Debug", Icons.Default.Build) { onDebug() }
+                }
             }
         }
     }

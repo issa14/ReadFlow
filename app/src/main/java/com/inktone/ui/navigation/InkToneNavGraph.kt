@@ -118,9 +118,11 @@ fun InkToneNavGraph() {
             )
         }
 
-        // ── Debug TTS (conservé) ──────────────────
+        // ── Debug TTS (build debug uniquement) ────
         composable(Routes.DEBUG) {
-            com.inktone.ui.screen.TtsTestScreen()
+            if (com.inktone.BuildConfig.DEBUG) {
+                com.inktone.ui.screen.TtsTestScreen()
+            }
         }
     }
 }
