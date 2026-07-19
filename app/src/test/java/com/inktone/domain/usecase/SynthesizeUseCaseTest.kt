@@ -29,7 +29,7 @@ class SynthesizeUseCaseTest {
             samples = FloatArray(1000) { 0.5f },
             sampleRate = 22050,
             text = text,
-            voiceLabel = "Miro",
+            voiceLabel = "Jessica",
             synthesisTimeMs = 100,
             audioDurationMs = 300,
             engineId = "piper"

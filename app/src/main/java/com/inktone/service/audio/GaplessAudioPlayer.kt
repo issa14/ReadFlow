@@ -23,7 +23,7 @@ import javax.inject.Singleton
  *
  * Format : PCM 16-bit mono. Sample rate dynamique (22050 Hz pour Piper).
  * Sherpa-ONNX produit du PCM float → conversion FloatArray → ShortArray
- * avec gain 3x pour compenser le volume natif faible du modèle Miro.
+ * avec gain 3x pour compenser le volume natif faible du modèle Piper VITS.
  */
 @Singleton
 class GaplessAudioPlayer @Inject constructor() {

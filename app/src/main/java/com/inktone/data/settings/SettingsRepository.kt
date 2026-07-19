@@ -65,9 +65,6 @@ class SettingsRepository @Inject constructor(
         val HAS_IMPORTED_FIRST_BOOK = booleanPreferencesKey("has_imported_first_book")
         val HAS_SEEN_READER_TOOLTIP = booleanPreferencesKey("has_seen_reader_tooltip")
         val HAS_SEEN_PLAY_TOOLTIP = booleanPreferencesKey("has_seen_play_tooltip")
-
-        // UPMC : détection de crash natif
-        val UPMC_INIT_FAILED = booleanPreferencesKey("upmc_init_failed")
     }
 
     // ── Lectures (Flow) ──────────────────────────────
@@ -188,19 +185,5 @@ class SettingsRepository @Inject constructor(
 
     suspend fun markPlayTooltipSeen() {
         dataStore.edit { it[Keys.HAS_SEEN_PLAY_TOOLTIP] = true }
-    }
-
-    // ── UPMC crash guard ──────────────────────────
-
-    val upmcInitFailed: Flow<Boolean> = dataStore.data.map { it[Keys.UPMC_INIT_FAILED] ?: false }
-
-    /** À appeler juste AVANT de tenter l'init UPMC. */
-    suspend fun setUpmcInitFlag() {
-        dataStore.edit { it[Keys.UPMC_INIT_FAILED] = true }
-    }
-
-    /** À appeler après une init UPMC réussie. */
-    suspend fun clearUpmcInitFlag() {
-        dataStore.edit { it[Keys.UPMC_INIT_FAILED] = false }
     }
 }

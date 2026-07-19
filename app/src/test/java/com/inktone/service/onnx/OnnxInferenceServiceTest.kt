@@ -2,11 +2,9 @@ package com.inktone.service.onnx
 
 import android.content.Context
 import android.content.res.AssetManager
-import com.inktone.data.settings.SettingsRepository
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
@@ -33,7 +31,6 @@ class OnnxInferenceServiceTest {
     private val context = mockk<Context>(relaxed = true)
     private val assetManager = mockk<AssetManager>(relaxed = true)
     private val filesDir = mockk<File>(relaxed = true)
-    private val settingsRepo = mockk<SettingsRepository>(relaxed = true)
 
     private lateinit var service: OnnxInferenceService
 
@@ -45,12 +42,7 @@ class OnnxInferenceServiceTest {
         every { context.filesDir } returns filesDir
         every { filesDir.absolutePath } returns "/data/data/com.inktone/files"
 
-        // Settings mocks
-        every { settingsRepo.upmcInitFailed } returns flowOf(false)
-        coEvery { settingsRepo.setUpmcInitFlag() } just Runs
-        coEvery { settingsRepo.clearUpmcInitFlag() } just Runs
-
-        service = OnnxInferenceService(context, settingsRepo)
+        service = OnnxInferenceService(context)
     }
 
     @AfterEach
@@ -98,7 +90,7 @@ class OnnxInferenceServiceTest {
     fun `synthesize échoue si le service n'est pas initialisé`() = runTest {
         assertFalse(service.isInitialized)
         try {
-            service.synthesize("Bonjour.", voice = OnnxInferenceService.Voice.MIRO, speed = 1.0f)
+            service.synthesize("Bonjour.", voice = OnnxInferenceService.Voice.JESSICA, speed = 1.0f)
         } catch (e: Exception) {
             // Comportement attendu : exception levée car TTS non initialisé
             assertTrue(e is IllegalStateException || e is NullPointerException,

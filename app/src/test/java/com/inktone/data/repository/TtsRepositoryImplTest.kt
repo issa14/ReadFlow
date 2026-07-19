@@ -33,7 +33,7 @@ class TtsRepositoryImplTest {
             samples = FloatArray(1000) { 0.5f },
             sampleRate = 22050,
             text = text,
-            voiceLabel = "Miro",
+            voiceLabel = "Jessica",
             synthesisTimeMs = 50,
             audioDurationMs = 300,
             engineId = engineId
@@ -47,7 +47,7 @@ class TtsRepositoryImplTest {
         every { piperProvider.engineLabel } returns "Piper ONNX (local)"
         every { piperProvider.isAvailable } returns true
         every { piperProvider.availableVoices } returns listOf(
-            TtsVoice("miro", "Miro (FR)")
+            TtsVoice("jessica", "Jessica (FR)")
         )
 
         // Edge provider setup

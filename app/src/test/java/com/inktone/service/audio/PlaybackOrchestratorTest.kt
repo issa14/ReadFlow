@@ -53,7 +53,7 @@ class PlaybackOrchestratorTest {
             samples = FloatArray(4410) { 0.5f },  // ~200ms à 22050Hz
             sampleRate = 22050,
             text = text,
-            voiceLabel = "Miro",
+            voiceLabel = "Jessica",
             synthesisTimeMs = 50,
             audioDurationMs = durationMs,
             engineId = engineId

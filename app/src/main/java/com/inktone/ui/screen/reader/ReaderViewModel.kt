@@ -294,6 +294,18 @@ class ReaderViewModel @Inject constructor(
         val savedVoice = savedState.get<Int>("voice") ?: 0
         _uiState.update { it.copy(speed = savedSpeed, voice = savedVoice) }
 
+        // Synchroniser la voix avec les Settings si jamais modifiée (1ère ouverture)
+        if (savedVoice == 0) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val settingsVoiceName = settingsRepository.voice.first()
+                val settingsVoice = OnnxInferenceService.Voice.entries
+                    .find { it.name.equals(settingsVoiceName, ignoreCase = true) }
+                if (settingsVoice != null) {
+                    _uiState.update { it.copy(voice = settingsVoice.sid) }
+                }
+            }
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
