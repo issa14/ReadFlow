@@ -9,6 +9,36 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### 2026-07-19 — Audit fonctionnel (branche `feature/feature-polish`)
+
+Audit fonctionnel complet exécuté selon [`PLAN_FEATURE_AUDIT_CLAUDECODE.md`](./PLAN_FEATURE_AUDIT_CLAUDECODE.md), 8 tâches. Cible : fonctionnalités identifiées **CASSÉES** (Recherche FTS, Notes, navigation depuis Signets) ou en **CODE MORT** (Onboarding orphelin, `RecentBooksRepository`, `BookProgressDao`).
+
+#### Fixed — 🔴 Fonctionnalités cassées
+
+- **Recherche FTS** — `sentence_fts` n'était jamais peuplée à l'import ; `BookRepositoryImpl.importEpub()` insère désormais chaque phrase segmentée dans `SearchDao` au fil de l'import. Taper un résultat de recherche navigue maintenant vers la bonne position (chapitre + phrase) dans le Reader via `SavedStateHandle` (retour d'écran) ou des arguments de route optionnels (navigation directe depuis la bibliothèque).
+- **Navigation depuis les Signets** — même mécanisme `jumpChapter`/`jumpSentence` appliqué à `BookmarkScreen` et au panneau "tous les livres" (`AllBookmarksPanel`), qui transmet désormais aussi la position (chapitre, phrase) et non plus seulement l'identifiant du livre.
+- **Notes** — un dialog de saisie de texte remplace l'ajout silencieux d'une annotation vide ; le texte est stocké dans `AnnotationEntity.notes` et un indicateur 📝 discret est affiché dans le texte du Reader pour les phrases annotées.
+
+#### Added — 🟠 Fonctionnalités partielles complétées
+
+- **Surlignages** — mini color picker (5 couleurs) au lieu d'une couleur unique imposée ; nouvel onglet "Surlignages" dans `BookmarkScreen` (liste + suppression), en plus de l'onglet Signets existant.
+- **Table des matières** — affiche les vrais titres de chapitres (`SentenceCacheDao.getChapterTitles()`) au lieu de "Chapitre 1, 2, 3…".
+- **Overlays bas d'écran** — suppression des collisions visuelles entre `UnifiedControlPanel`, tooltips et captions TTS : le tooltip d'accueil du Reader ne s'affiche plus que HUD masqué (il pointe vers le FAB ▶, pas le panneau), et le tooltip post-lecture ainsi que les captions TTS sont masqués pendant une sélection de texte.
+
+#### Removed — 🟡 Code mort
+
+- `BookProgressDao` / `BookProgressEntity` et `RecentBooksRepository` / `RecentBookDao` / `RecentBookEntity` supprimés (aucune référence productive) — migration Room `5→6` ajoutée pour `DROP TABLE` les tables `book_progress` et `recent_books` obsolètes.
+- `TtsTestScreen` et le bouton "Debug" du tiroir de navigation conditionnés à `BuildConfig.DEBUG`.
+- Onboarding vérifié déjà connecté (`MainActivity` + flag `isFirstLaunch` DataStore) — aucun changement nécessaire.
+
+#### Fixed — 🐛 Bugs découverts pendant l'audit (hors périmètre initial)
+
+- **Course critique dans `PlaybackOrchestrator`** — `consumeAndPlay()` pouvait écraser un état `Error` (posé par le pipeline de synthèse après le seuil d'erreurs consécutives) avec `Playing`, les deux coroutines producteur/consommateur tournant en parallèle sur le même scope. Corrigé via `MutableStateFlow.update{}` (compare-and-swap) au lieu d'une affectation directe non atomique.
+- `ReaderViewModelTest` ne compilait plus (mocks désynchronisés du constructeur du ViewModel) — réaligné.
+- `PlaybackOrchestratorTest` stabilisé (attente réelle par polling au lieu d'un `Thread.sleep` fixe, racy sous charge machine) et une annotation `@Test` manquante restaurée sur un test qui ne s'exécutait jamais silencieusement.
+
+**Validation** : `./gradlew assembleDebug` ✅, `kspDebugKotlin` ✅ après chaque tâche ; `testDebugUnitTest` ✅ (111 tests, 0 échec, stable sur 15 exécutions répétées après correction de la course).
+
 ### 2026-07-19 — Refonte UI/UX (branche `ui-ux-audit-phase1`)
 
 Audit UI/UX complet exécuté selon [`PLAN_ACTION_UXUI_CLAUDECODE.md`](./PLAN_ACTION_UXUI_CLAUDECODE.md), 10 tâches.

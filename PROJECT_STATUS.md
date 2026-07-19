@@ -1,10 +1,10 @@
 # 📊 InkTone — Suivi d'Avancement Projet
 
-> Dernière mise à jour : 2026-07-18  
+> Dernière mise à jour : 2026-07-19  
 > Phase actuelle : **Phase 6 — Beta & Release**  
 > Progression globale : **~95%**  
 > Moteurs TTS : **Piper VITS `fr_FR-upmc-medium`** — 2 locuteurs Jessica ♀ + Pierre ♂ (local) + **Microsoft Edge TTS** (cloud, Vivienne & Henri)  
-> Tests unitaires : **110 tests, 0 échec** (12 fichiers)  
+> Tests unitaires : **111 tests, 0 échec** (12 fichiers)  
 > Score audit : **8.0/10** (corrigé depuis 6.2/10)
 
 ---
@@ -150,6 +150,29 @@ Voir [`CHANGELOG.md`](./CHANGELOG.md) pour le détail complet.
 
 **Validation** : `./gradlew assembleDebug` ✅ après chaque tâche.
 
+### Phase 5d — Audit fonctionnel ✅ COMPLÉTÉE (2026-07-19)
+
+**Branche** `feature/feature-polish` — 8 tâches exécutées depuis [`PLAN_FEATURE_AUDIT_CLAUDECODE.md`](./PLAN_FEATURE_AUDIT_CLAUDECODE.md), qui ciblaient les fonctionnalités identifiées CASSÉES ou en CODE MORT (recherche, notes, navigation depuis signets, onboarding orphelin).
+Voir [`CHANGELOG.md`](./CHANGELOG.md) pour le détail complet.
+
+| # | Tâche | Statut | Priorité |
+|---|---|---|---|
+| 1 | Recherche FTS réparée (peuplement à l'import + navigation vers résultat) | ✅ Fait | 🔴 |
+| 2 | Navigation depuis Signets (écran livre + panneau tous-livres) réparée | ✅ Fait | 🔴 |
+| 3 | Notes : dialog de saisie + indicateur visuel dans le texte | ✅ Fait | 🔴 |
+| 4 | Surlignages : color picker (5 couleurs) + onglet gestion/suppression | ✅ Fait | 🟠 |
+| 5 | Table des matières : vrais titres de chapitres (au lieu de "Chapitre N") | ✅ Fait | 🟠 |
+| 6 | Overlays bas d'écran unifiés (suppression des collisions visuelles) | ✅ Fait | 🟠 |
+| 7 | Purge code mort (`BookProgressDao`, `RecentBooksRepository`) + migration Room 5→6 | ✅ Fait | 🟡 |
+| 8 | Onboarding — déjà connecté (`MainActivity` + DataStore), aucun changement nécessaire | ✅ Vérifié | 🟡 |
+
+**Corrections complémentaires** (tests découverts cassés pendant l'audit) :
+- `ReaderViewModelTest` ne compilait plus (mocks désynchronisés du constructeur du ViewModel) — réaligné.
+- **Course critique** dans `PlaybackOrchestrator.consumeAndPlay()` : l'état pouvait être écrasé de `Error` vers `Playing` par une coroutine concurrente (producteur/consommateur du pipeline de synthèse tournant en parallèle) — corrigée via `MutableStateFlow.update{}` (CAS) au lieu d'une affectation directe.
+- `PlaybackOrchestratorTest` stabilisé (attente réelle au lieu de `Thread.sleep` fixe, racy sous charge) + une annotation `@Test` manquante restaurée (test silencieusement jamais exécuté).
+
+**Validation** : `./gradlew assembleDebug` ✅, `kspDebugKotlin` ✅, `testDebugUnitTest` ✅ (111 tests, 0 échec, stable sur 15 exécutions répétées).
+
 ### 🔄 Historique TTS : Kokoro → Piper
 
 Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé puis abandonné :
@@ -194,7 +217,7 @@ Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé pu
 | Gap inter-phrases | 0ms | 0ms (gapless) |
 | Taille APK (debug) | < 200 Mo | **120 Mo** |
 | Taille modèle ONNX | < 80 Mo | **73 Mo** (Piper UPMC) |
-| Tests unitaires | > 70% (domain) | **110 tests** (0 échec) |
+| Tests unitaires | > 70% (domain) | **111 tests** (0 échec) |
 
 ---
 
