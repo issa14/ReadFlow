@@ -117,7 +117,15 @@ fun SyncSettingsScreen(
                 if (state.webdavConnected) {
                     AssistChip(
                         onClick = {},
-                        label = { Text("✓ Connecté", color = MaterialTheme.colorScheme.tertiary) }
+                        label = { Text("Connecté", color = MaterialTheme.colorScheme.tertiary) },
+                        leadingIcon = {
+                            Icon(
+                                com.inktone.ui.theme.AppIcons.SuccessOutlined,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     )
                 }
             }
@@ -134,10 +142,14 @@ fun SyncSettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.isLoading
             ) {
-                Icon(Icons.Default.Cloud, "Synchronisation", modifier = Modifier.size(20.dp))
+                Icon(
+                    if (state.driveConnected) com.inktone.ui.theme.AppIcons.SuccessOutlined else Icons.Default.Cloud,
+                    contentDescription = "Synchronisation",
+                    modifier = Modifier.size(20.dp)
+                )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (state.driveConnected) "✓ Connecté à Google Drive"
+                    if (state.driveConnected) "Connecté à Google Drive"
                     else "Se connecter avec Google Drive"
                 )
             }

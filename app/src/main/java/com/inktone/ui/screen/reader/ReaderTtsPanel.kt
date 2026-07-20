@@ -163,7 +163,7 @@ fun TtsPanel(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         Spacer(Modifier.height(16.dp))
 
-        // 💎 Sleep Timer (Minuteur de mise en veille)
+        // Sleep Timer (Minuteur de mise en veille)
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

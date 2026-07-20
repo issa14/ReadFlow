@@ -59,7 +59,7 @@ fun AllBookmarksPanel(
         if (bookmarks.isEmpty()) {
             Text(
                 if (searchQuery.isNotBlank()) "Aucun résultat pour « $searchQuery »"
-                else "Aucun marque-page. Ajoutez-en depuis le lecteur (icône 🔖).",
+                else "Aucun marque-page. Ajoutez-en depuis le lecteur.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(vertical = 16.dp)

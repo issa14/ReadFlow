@@ -73,9 +73,9 @@ fun SettingsScreen(
             .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
         // ═══════════════════════════════════════════
-        //  ⚡ PRÉSETS RAPIDES
+        //  PRÉSETS RAPIDES
         // ═══════════════════════════════════════════
-        SectionGroup("⚡ Présets rapides")
+        SectionGroup("Présets rapides", icon = com.inktone.ui.theme.AppIcons.Presets)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -115,9 +115,9 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
 
         // ═══════════════════════════════════════════
-        //  📖 LECTURE
+        //  LECTURE
         // ═══════════════════════════════════════════
-        SectionGroup("📖 Lecture")
+        SectionGroup("Lecture", icon = com.inktone.ui.theme.AppIcons.Reading)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
 
@@ -182,13 +182,13 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
 
         // ═══════════════════════════════════════════
-        //  📱 APPAREIL
+        //  APPAREIL
         // ═══════════════════════════════════════════
-        SectionGroup("📱 Appareil")
+        SectionGroup("Appareil", icon = com.inktone.ui.theme.AppIcons.Device)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
 
-                SectionHeader("🎨 Apparence")
+                SectionHeader("Apparence", icon = com.inktone.ui.theme.AppIcons.Appearance)
                 SettingRow(
                     icon = Icons.Default.Palette,
                     title = "Thème",
@@ -207,7 +207,7 @@ fun SettingsScreen(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 8.dp))
 
-                SectionHeader("♿ Accessibilité")
+                SectionHeader("Accessibilité", icon = com.inktone.ui.theme.AppIcons.Accessibility)
                 SwitchSetting(
                     icon = Icons.Default.Animation,
                     title = "Réduire les animations",
@@ -229,9 +229,9 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
 
         // ═══════════════════════════════════════════
-        //  💾 DONNÉES
+        //  DONNÉES
         // ═══════════════════════════════════════════
-        SectionGroup("💾 Données")
+        SectionGroup("Données", icon = com.inktone.ui.theme.AppIcons.Data)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 SettingRow(
@@ -260,9 +260,9 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
 
         // ═══════════════════════════════════════════
-        //  🗣️ PRONONCIATION
+        //  PRONONCIATION
         // ═══════════════════════════════════════════
-        SectionGroup("🗣️ Prononciation")
+        SectionGroup("Prononciation", icon = com.inktone.ui.theme.AppIcons.Pronunciation)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 PronunciationDictionary(
@@ -301,13 +301,25 @@ fun SettingsScreen(
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun SectionGroup(text: String) {
-    Text(text, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp))
+private fun SectionGroup(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(text, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+    }
 }
 
 @Composable
-private fun SectionHeader(text: String) {
-    Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(vertical = 4.dp))
+private fun SectionHeader(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+    }
 }
 
 @Composable
@@ -429,11 +441,20 @@ private fun EnginePickerDialog(engines: List<EngineInfo>, selected: String, onSe
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(engine.label, color = MaterialTheme.colorScheme.onSurface)
-                        Text(
-                            if (engine.isAvailable) "✅ Disponible" else "⚠️ Indisponible",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (engine.isAvailable) com.inktone.ui.theme.AppIcons.SuccessOutlined else com.inktone.ui.theme.AppIcons.WarningOutlined,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                if (engine.isAvailable) "Disponible" else "Indisponible",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }}

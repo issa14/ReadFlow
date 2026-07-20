@@ -131,10 +131,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 backupManager.exportTo(uri)
-                _uiState.update { it.copy(backupMessage = "✅ Sauvegarde exportée avec succès") }
+                _uiState.update { it.copy(backupMessage = "Sauvegarde exportée avec succès") }
             } catch (e: Exception) {
                 Log.e(TAG, "Export failed", e)
-                _uiState.update { it.copy(backupMessage = "❌ Échec : ${e.message}") }
+                _uiState.update { it.copy(backupMessage = "Échec : ${e.message}") }
             }
         }
     }
@@ -143,10 +143,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val count = backupManager.importFrom(uri)
-                _uiState.update { it.copy(backupMessage = "✅ $count éléments restaurés") }
+                _uiState.update { it.copy(backupMessage = "$count éléments restaurés") }
             } catch (e: Exception) {
                 Log.e(TAG, "Import failed", e)
-                _uiState.update { it.copy(backupMessage = "❌ Échec : ${e.message}") }
+                _uiState.update { it.copy(backupMessage = "Échec : ${e.message}") }
             }
         }
     }

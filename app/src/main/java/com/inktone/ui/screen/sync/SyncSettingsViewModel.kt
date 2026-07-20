@@ -75,7 +75,7 @@ class SyncSettingsViewModel @Inject constructor(
                     it.copy(
                         isLoading = false,
                         driveConnected = true,
-                        statusMessage = "✓ Connecté : ${account.email}",
+                        statusMessage = "Connecté : ${account.email}",
                         isError = false
                     )
                 }
