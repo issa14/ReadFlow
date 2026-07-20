@@ -1227,7 +1227,6 @@ private fun LoadingView() {
 
 @Composable
 private fun ErrorBanner(error: String, onDismiss: () -> Unit, onRetry: (() -> Unit)? = null) {
-    val message = error.trimStart('⚠', '❌', '✅', ' ', '️')
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.errorContainer,
@@ -1245,7 +1244,7 @@ private fun ErrorBanner(error: String, onDismiss: () -> Unit, onRetry: (() -> Un
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                text = message,
+                text = error,
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f)

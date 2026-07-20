@@ -232,7 +232,7 @@ class LibraryViewModel @Inject constructor(
                 // Toast de succès pour le premier import
                 if (!settingsRepository.hasImportedFirstBook.first()) {
                     settingsRepository.markFirstBookImported()
-                    _uiState.update { it.copy(importSuccessSnackbar = "✅ Livre importé — appuyez pour commencer la lecture") }
+                    _uiState.update { it.copy(importSuccessSnackbar = "Livre importé — appuyez pour commencer la lecture") }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false, importProgress = null, importStatus = null) }
@@ -252,7 +252,7 @@ class LibraryViewModel @Inject constructor(
                 loadBooks()
                 if (!settingsRepository.hasImportedFirstBook.first()) {
                     settingsRepository.markFirstBookImported()
-                    _uiState.update { it.copy(importSuccessSnackbar = "✅ Livre importé — appuyez pour commencer la lecture") }
+                    _uiState.update { it.copy(importSuccessSnackbar = "Livre importé — appuyez pour commencer la lecture") }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message, isLoading = false, importProgress = null, importStatus = null) }
@@ -311,7 +311,7 @@ class LibraryViewModel @Inject constructor(
                 it.copy(
                     isRebuildingCovers = false,
                     coverRebuildProgress = null,
-                    libraryActionMessage = "✅ Couvertures reconstruites"
+                    libraryActionMessage = "Couvertures reconstruites"
                 )
             }
             loadBooks()
@@ -323,7 +323,7 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             bookRepository.clearAllCovers()
             loadBooks()
-            _uiState.update { it.copy(libraryActionMessage = "✅ Couvertures réinitialisées") }
+            _uiState.update { it.copy(libraryActionMessage = "Couvertures réinitialisées") }
         }
     }
 

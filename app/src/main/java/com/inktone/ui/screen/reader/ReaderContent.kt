@@ -14,6 +14,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -679,17 +680,23 @@ private fun SentenceRenderer(
 
     Row(modifier = bgModifier, verticalAlignment = Alignment.CenterVertically) {
         if (hasBookmark) {
-            Text(
-                "🔖",
-                fontSize = 12.sp,
-                modifier = Modifier.padding(end = 4.dp)
+            Icon(
+                imageVector = com.inktone.ui.theme.AppIcons.Bookmark,
+                contentDescription = "Marque-page",
+                tint = accentColor,
+                modifier = Modifier
+                    .size(14.dp)
+                    .padding(end = 4.dp)
             )
         }
         if (hasNote) {
-            Text(
-                "📝",
-                fontSize = 10.sp,
-                modifier = Modifier.padding(end = 4.dp)
+            Icon(
+                imageVector = com.inktone.ui.theme.AppIcons.Note,
+                contentDescription = "Note",
+                tint = textColor.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .size(14.dp)
+                    .padding(end = 4.dp)
             )
         }
 

@@ -187,8 +187,15 @@ fun ReaderScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Icon(
+                        imageVector = com.inktone.ui.theme.AppIcons.Hint,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        "💡 Appuyez sur ▶ pour synchroniser texte et audio",
+                        "Appuyez sur ▶ pour synchroniser texte et audio",
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f)
@@ -216,8 +223,15 @@ fun ReaderScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Icon(
+                        imageVector = com.inktone.ui.theme.AppIcons.Hint,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        "💡 Le surlignage suit chaque mot lu",
+                        "Le surlignage suit chaque mot lu",
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                         fontSize = 13.sp,
                         modifier = Modifier.weight(1f)
@@ -611,16 +625,24 @@ private fun SelectionActionBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onCopy, modifier = Modifier.weight(1f)) {
-                Text("📋 Copier", color = textColor, fontSize = 13.sp, maxLines = 1)
+                Icon(com.inktone.ui.theme.AppIcons.Copy, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Copier", color = textColor, fontSize = 13.sp, maxLines = 1)
             }
             TextButton(onClick = onHighlight, modifier = Modifier.weight(1f)) {
-                Text("🖍️ Surligner", color = accentColor, fontSize = 13.sp, maxLines = 1)
+                Icon(com.inktone.ui.theme.AppIcons.Highlight, contentDescription = null, tint = accentColor, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Surligner", color = accentColor, fontSize = 13.sp, maxLines = 1)
             }
             TextButton(onClick = onNote, modifier = Modifier.weight(1f)) {
-                Text("📝 Note", color = textColor, fontSize = 13.sp, maxLines = 1)
+                Icon(com.inktone.ui.theme.AppIcons.Note, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Note", color = textColor, fontSize = 13.sp, maxLines = 1)
             }
             TextButton(onClick = onBookmark, modifier = Modifier.weight(1f)) {
-                Text("🔖 Marque-page", color = accentColor, fontSize = 13.sp, maxLines = 1,
+                Icon(com.inktone.ui.theme.AppIcons.BookmarkAdd, contentDescription = null, tint = accentColor, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Marque-page", color = accentColor, fontSize = 13.sp, maxLines = 1,
                     fontWeight = FontWeight.Medium)
             }
         }
@@ -641,8 +663,16 @@ private fun LoadingIndicator(color: Color) {
 @Composable
 private fun ErrorMessage(msg: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("❌ $msg", color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(24.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(24.dp)) {
+            Icon(
+                imageVector = com.inktone.ui.theme.AppIcons.ErrorOutlined,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(msg, color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
