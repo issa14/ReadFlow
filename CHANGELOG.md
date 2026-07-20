@@ -9,6 +9,19 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### 2026-07-20 — Plan Top-Tier, Phase 2.2 : Import EPUB — traitement parallèle des chapitres (branche `main`)
+
+Tâche 2.2 de [`PLAN_ACTION_TOP_TIER_CLAUDECODE.md`](./PLAN_ACTION_TOP_TIER_CLAUDECODE.md).
+
+#### Changed — 🟠 Performance de l'import
+
+- **Chapitres traités en parallèle** (`Dispatchers.IO.limitedParallelism(4)` + `async`/`awaitAll`) au lieu d'une boucle séquentielle — le coût par chapitre est dominé par le CPU-bound (nettoyage HTML, segmentation en phrases), qui se parallélise bien.
+- **`tocEntries`** passe d'une `MutableList` remplie séquentiellement à un `Array<TocEntry?>` pré-dimensionné, chaque coroutine n'écrivant que sur son propre index — sûr sous `awaitAll()` (garantie de visibilité mémoire à la jointure), aurait été une course de données sous accès concurrent direct à une liste partagée.
+- **`onProgress` agrégé sur un compteur atomique de chapitres réellement terminés**, pas sur l'index de départ `i/totalChapters` qui n'aurait plus eu de sens une fois l'ordre de traitement non séquentiel.
+- **`EpubZipIndex` rendu sûr pour un accès concurrent** : les lectures brutes (`readText`/`copyTo`) sont sérialisées via un `ReentrantLock` (`java.util.zip.ZipFile` n'est pas garanti thread-safe sur toutes les versions d'Android ciblées), mais le traitement CPU-bound qui suit reste hors du verrou et parallèle. `extractAndSaveImage()` utilise désormais `extractIfMissing()` — vérification d'existence et écriture atomiques sous le même verrou, pour éviter que deux chapitres partageant une même image ne l'écrivent simultanément (course détectée en concevant cette tâche, pas en production).
+
+**Validation** : `./gradlew assembleDebug` ✅, `testDebugUnitTest` ✅. Test réel sur appareil physique : import déclenché avec succès, aucun crash, comportement cohérent — la mesure chiffrée du gain de parallélisation spécifique (par rapport à la mesure déjà faite en 2.1) n'a pas pu être complétée dans cette session (voir 2.2bis pour un souci sans rapport découvert pendant cette validation).
+
 ### 2026-07-20 — Plan Top-Tier, Phase 2.1 : Import EPUB — une seule ouverture ZIP (branche `main`)
 
 Tâche 2.1 de [`PLAN_ACTION_TOP_TIER_CLAUDECODE.md`](./PLAN_ACTION_TOP_TIER_CLAUDECODE.md).

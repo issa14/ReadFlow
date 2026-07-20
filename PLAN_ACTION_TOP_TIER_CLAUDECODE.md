@@ -211,6 +211,22 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
+### 2.2bis — 🟠 Sous-problème découvert : hrefs de TOC avec ancres percent-encodées non résolues dans le spine
+
+**Découvert pendant la validation sur appareil de la tâche 2.2** (en testant l'import de *Anna Karénine*, un EPUB probablement exporté par Calibre), hors périmètre initial — noté ici plutôt que corrigé silencieusement en marge.
+
+**Problème** : `SpineIndex.normalizeHref()` (`app/src/main/java/com/inktone/data/epub/SpineIndex.kt`) ne supprime que l'ancre après un caractère `#` littéral (`href.substringBefore("#")`). Sur ce livre, les hrefs de TOC contiennent leurs ancres percent-encodées (`%23` au lieu de `#`, ex. `content/....html%23cfs_3`), donc la normalisation ne les détecte pas et conserve tout le suffixe encodé collé au nom de fichier — qui ne correspond alors plus à aucune entrée du spine. Résultat observé : **les 25 entrées de la table des matières du livre échouent à se résoudre** (`"TOC '...' non trouvé dans le spine — ignoré"` pour chacune), et le livre s'importe avec zéro contenu réel mis en cache. À la lecture, `getChapter()` échoue ensuite à retrouver certaines entrées ZIP pour les mêmes raisons de href mal résolu.
+
+**Confirmé indépendant de la Phase 2** : `SpineIndex.kt` n'a été modifié par aucune tâche de la Phase 2 (2.1/2.2) — la logique de résolution TOC→spine est antérieure et intacte. Le bug affecte potentiellement tout EPUB dont les hrefs de TOC contiennent des caractères percent-encodés dans leur ancre (espaces `%20` étant une autre variante possible du même problème).
+
+**À faire** :
+- Décoder les hrefs (URL-decode) avant normalisation dans `SpineIndex.normalizeHref()` et partout où un href brut de `Link` est comparé à un nom d'entrée ZIP (`BookRepositoryImpl.resolveRelativeHref()`, `EpubZipIndex.find()`), pas seulement gérer `%23` en plus de `#` — le problème est plus général (n'importe quel caractère percent-encodé dans un href).
+- Ajouter un EPUB de test avec ce pattern d'ancres encodées aux tests de régression du parsing.
+
+**Validation** : réimporter *Anna Karénine* (ou un EPUB de test reproduisant le pattern) — la table des matières doit se résoudre correctement dans le spine, le livre doit s'importer avec du contenu réel (chapitres non vides, phrases en cache).
+
+---
+
 ## PHASE 3 — Adaptation à l'écran
 
 **Dépend de** : Phase 1.5 pour la tâche 3.6 (pagination), sinon indépendante.
