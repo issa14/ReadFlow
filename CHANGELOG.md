@@ -9,6 +9,20 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### 2026-07-20 — Plan Top-Tier, Phase 2.1 : Import EPUB — une seule ouverture ZIP (branche `main`)
+
+Tâche 2.1 de [`PLAN_ACTION_TOP_TIER_CLAUDECODE.md`](./PLAN_ACTION_TOP_TIER_CLAUDECODE.md).
+
+#### Changed — 🔴 Performance de l'import
+
+- **`extractRawHtml()`, `extractAndSaveImage()`, `extractCoverHeuristic()`, `extractCalibreSeriesFallback()`** ouvraient chacune un `ZipFile(epubFile)` séparé et rescannaient linéairement toutes les entrées de l'archive à chaque appel — potentiellement 70-100+ ouvertures/scans redondants par import (une fois par chapitre, une fois par image). Remplacé par `EpubZipIndex` : un seul `ZipFile` ouvert en tête d'import, une `Map<String, ZipEntry>` indexée une fois, recherche O(1) par chemin exact avec repli par suffixe (préserve le comportement existant pour les chemins relatifs/préfixés différemment). `getChapter()` (chargement à froid d'un chapitre) et `regenerateCover()` bénéficient du même changement.
+- Fermeture garantie via `try/finally` englobant tout le corps de `importEpub()` après l'ouverture du ZIP.
+
+**Validation** : `./gradlew assembleDebug` ✅, `testDebugUnitTest` ✅. Mesure réelle sur appareil physique (pas de comparaison avant/après contrôlée — l'optimisation remplace un pattern connu par un autre strictement moins coûteux, sans changement de comportement) : trois imports capturés via logcat, aucun pic de latence par chapitre malgré des dizaines d'appels `extractRawHtml`/`extractRichBlocks` contre la même archive —
+  - *Daisy Fortune Tome 2* (27 chapitres) : 4,55s
+  - *Avoir le courage de ne pas être aimé* (27 chapitres) : 2,50s
+  - *Persuasion* (Austen) : chapitres traités en ~100-150ms chacun malgré des dizaines de blocs riches par chapitre
+
 ### 2026-07-20 — Plan Top-Tier, Phase 1 : Progression de lecture (branche `main`)
 
 Phase 1 exécutée dans l'ordre 1.1 → 1.8 selon [`PLAN_ACTION_TOP_TIER_CLAUDECODE.md`](./PLAN_ACTION_TOP_TIER_CLAUDECODE.md). Conception préalable dans [`architecture.md` §11](./architecture.md).

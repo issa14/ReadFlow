@@ -42,12 +42,37 @@ import org.readium.r2.shared.util.http.DefaultHttpClient
 import org.readium.r2.shared.util.logging.WarningLogger
 import org.readium.r2.streamer.PublicationOpener
 import org.readium.r2.streamer.parser.epub.EpubParser
+import java.io.Closeable
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Index construit une seule fois par ouverture d'archive EPUB, pour éviter de rouvrir le ZIP
+ * (relecture du répertoire central) et de rescanner linéairement ses entrées à chaque extraction
+ * (HTML de chapitre, image, couverture, série calibre) — potentiellement 70-100+ fois par import
+ * avant ce changement. Voir PLAN_ACTION_TOP_TIER_CLAUDECODE.md §2.1.
+ */
+private class EpubZipIndex(private val zip: ZipFile) : Closeable {
+    private val entries: List<ZipEntry> = zip.entries().toList()
+    private val byName: Map<String, ZipEntry> = entries.associateBy { it.name }
+
+    /** Entrée par chemin exact (O(1)), puis par correspondance de suffixe pour les chemins relatifs/préfixés différemment. */
+    fun find(path: String): ZipEntry? = byName[path] ?: entries.firstOrNull { it.name.endsWith(path) }
+
+    /** Parcours complet, pour les recherches heuristiques (ex. couverture par motif de nom). */
+    fun entriesSequence(): Sequence<ZipEntry> = entries.asSequence()
+
+    fun inputStream(entry: ZipEntry) = zip.getInputStream(entry)
+
+    override fun close() = zip.close()
+}
+
+private fun openZipIndex(epubFile: File): EpubZipIndex = EpubZipIndex(ZipFile(epubFile))
 
 @Singleton
 class BookRepositoryImpl @Inject constructor(
@@ -146,150 +171,155 @@ class BookRepositoryImpl @Inject constructor(
                 Log.w("BookRepo", "Lecture ISBN échouée : ${e.message}")
                 null
             }
-            val seriesInfo = try {
-                publication.metadata.belongsToSeries.firstOrNull()
-                    ?.let { it.name.takeIf { n -> n.isNotBlank() } to it.position?.toFloat() }
-                    ?.takeIf { it.first != null }
-            } catch (e: Exception) {
-                Log.w("BookRepo", "Lecture série (Readium) échouée : ${e.message}")
-                null
-            } ?: try {
-                extractCalibreSeriesFallback(epubFile)
-            } catch (e: Exception) {
-                Log.w("BookRepo", "Lecture série (calibre:series) échouée : ${e.message}")
-                null
-            }
-
-            // Extraction de la couverture — Readium metadata d'abord (EPUB3), fallback heuristique ZIP (EPUB2)
-            var coverPath: String? = extractCoverViaReadium(publication, epubDir)
-            if (coverPath == null) {
-                coverPath = extractCoverHeuristic(epubFile, epubDir)
-            }
-
-            // ── Construire l'index spine ──
-            val spineIndex = SpineIndex(publication.readingOrder)
-
-            // ── Aplatir le TOC en liste ordonnée avec profondeur (skip les entrées sans href) ──
-            val flatToc = mutableListOf<Pair<Link, Int>>()
-            fun flatten(links: List<Link>, level: Int) {
-                for (link in links) {
-                    if (link.href.toString().isNotBlank()) flatToc.add(link to level)
-                    flatten(link.children, level + 1)
-                }
-            }
-            flatten(publication.tableOfContents, 0)
-
-            val totalChapters = flatToc.size
-            Log.d("BookRepo", "TOC: ${publication.tableOfContents.size} racines → $totalChapters entrées, spineIndex.size=${spineIndex.size}")
-
-            val tocEntries = mutableListOf<TocEntry>()
-
-            val book = Book(
-                id = bookId,
-                title = title,
-                author = author,
-                description = publication.metadata.description,
-                coverPath = coverPath,
-                totalChapters = totalChapters,
-                language = publication.metadata.languages.firstOrNull() ?: "fr",
-                addedAt = System.currentTimeMillis(),
-                publisher = publisher,
-                publishedDate = publishedDate,
-                subjects = subjects,
-                isbn = isbn,
-                seriesName = seriesInfo?.first,
-                seriesIndex = seriesInfo?.second,
-                sourceFolder = sourceFolder
-            )
-
-            onProgress(0.25f, "Enregistrement du livre...")
-            bookDao.insert(book.toEntity(epubFile.absolutePath, coverPath))
-
-            // ── Import basé TOC (les chapitres = entrées du TOC, pas du spine) ──
-            val startCacheProgress = 0.25f
-            val endCacheProgress = 1.00f
-            val progressRange = endCacheProgress - startCacheProgress
-
-            for (i in 0 until totalChapters) {
-                val progressFraction = startCacheProgress + progressRange * (i.toFloat() / totalChapters)
-                val (tocLink, tocLevel) = flatToc[i]
-                val chapterTitle = tocLink.title?.takeIf { it.isNotBlank() } ?: "Chapitre ${i + 1}"
-                tocEntries.add(TocEntry(index = i, title = chapterTitle, level = tocLevel))
-                onProgress(progressFraction, "Optimisation : $chapterTitle...")
-
-                try {
-                    val nextTocLink = flatToc.getOrNull(i + 1)?.first
-                    val anchoredRange = spineIndex.resolveAnchoredRange(tocLink, nextTocLink)
-                    val spineRange = anchoredRange.spineRange
-
-                    if (spineRange.isEmpty()) {
-                        Log.w("BookRepo", "TOC '$chapterTitle' (${tocLink.href}) non trouvé dans le spine — ignoré")
-                        sentenceCacheDao.updateChapterTitle(bookId, i, "$chapterTitle (non trouvé)")
-                        continue
-                    }
-
-                    // Concaténer le texte + les RichBlocks de tous les fichiers spine de la plage
-                    val richBlocks = mutableListOf<RichBlock>()
-                    val combinedHtml = buildString {
-                        for (spineIdx in spineRange) {
-                            val link = publication.readingOrder[spineIdx]
-                            val spineHref = link.href.toString()
-                            var raw = extractRawHtml(epubFile, spineHref)
-                            if (raw.isBlank()) continue
-
-                            val isFirst = spineIdx == spineRange.first
-                            val isLast = spineIdx == spineRange.last
-                            val startAnchor = if (isFirst) anchoredRange.startAnchor else null
-                            val endAnchor = if (isLast) anchoredRange.endAnchor else null
-                            if (startAnchor != null || endAnchor != null) {
-                                raw = sliceByAnchors(raw, startAnchor, endAnchor)
-                            }
-
-                            append(stripHtml(raw))
-                            append("\n\n")
-                            richBlocks.addAll(
-                                extractRichBlocks(raw, epubFile, spineHref, imagesDir, richBlocks.size)
-                            )
-                        }
-                    }
-
-                    val sentences = chunkText(bookId, i, combinedHtml)
-                    sentenceCacheDao.updateChapterTitle(bookId, i, chapterTitle)
-
-                    // Longueur du chapitre en caractères, pour la pondération de la progression
-                    // (voir architecture.md §11.3) — calculée gratuitement, combinedHtml est déjà
-                    // en mémoire à cet endroit, aucun reparsing.
-                    tocEntries[i] = tocEntries[i].copy(charCount = combinedHtml.length)
-
-                    val richEntities = richBlocks.map { it.toEntity(bookId, i) }
-                    if (richEntities.isNotEmpty()) richBlockCacheDao.insertAll(richEntities)
-
-                    if (sentences.isNotEmpty()) {
-                        val ftsEntries = sentences.map { sentence ->
-                            SentenceFts(
-                                bookId = bookId,
-                                chapterIndex = i,
-                                sentenceIndex = sentence.index,
-                                text = sentence.text
-                            )
-                        }
-                        searchDao.insertAll(ftsEntries)
-                    }
-
-                    Log.d("BookRepo", "Chapitre TOC $i '$chapterTitle' : spine ${spineRange.first}..${spineRange.last} (${spineRange.count()} fichiers, ${richBlocks.size} blocs riches)")
+            val zipIndex = openZipIndex(epubFile)
+            try {
+                val seriesInfo = try {
+                    publication.metadata.belongsToSeries.firstOrNull()
+                        ?.let { it.name.takeIf { n -> n.isNotBlank() } to it.position?.toFloat() }
+                        ?.takeIf { it.first != null }
                 } catch (e: Exception) {
-                    Log.e("BookRepo", "Erreur import chapitre TOC $i '$chapterTitle' : ${e.message}", e)
-                    CrashReporter.recordException(e)
+                    Log.w("BookRepo", "Lecture série (Readium) échouée : ${e.message}")
+                    null
+                } ?: try {
+                    extractCalibreSeriesFallback(zipIndex)
+                } catch (e: Exception) {
+                    Log.w("BookRepo", "Lecture série (calibre:series) échouée : ${e.message}")
+                    null
                 }
-            }
 
-            // Persister les vrais titres TOC maintenant qu'on les a tous collectés
-            if (tocEntries.isNotEmpty()) {
-                bookDao.insert(book.copy(tocEntries = tocEntries).toEntity(epubFile.absolutePath, coverPath))
-            }
+                // Extraction de la couverture — Readium metadata d'abord (EPUB3), fallback heuristique ZIP (EPUB2)
+                var coverPath: String? = extractCoverViaReadium(publication, epubDir)
+                if (coverPath == null) {
+                    coverPath = extractCoverHeuristic(zipIndex, epubDir)
+                }
 
-            onProgress(1.00f, "Livre optimisé et prêt !")
-            book.copy(tocEntries = tocEntries)
+                // ── Construire l'index spine ──
+                val spineIndex = SpineIndex(publication.readingOrder)
+
+                // ── Aplatir le TOC en liste ordonnée avec profondeur (skip les entrées sans href) ──
+                val flatToc = mutableListOf<Pair<Link, Int>>()
+                fun flatten(links: List<Link>, level: Int) {
+                    for (link in links) {
+                        if (link.href.toString().isNotBlank()) flatToc.add(link to level)
+                        flatten(link.children, level + 1)
+                    }
+                }
+                flatten(publication.tableOfContents, 0)
+
+                val totalChapters = flatToc.size
+                Log.d("BookRepo", "TOC: ${publication.tableOfContents.size} racines → $totalChapters entrées, spineIndex.size=${spineIndex.size}")
+
+                val tocEntries = mutableListOf<TocEntry>()
+
+                val book = Book(
+                    id = bookId,
+                    title = title,
+                    author = author,
+                    description = publication.metadata.description,
+                    coverPath = coverPath,
+                    totalChapters = totalChapters,
+                    language = publication.metadata.languages.firstOrNull() ?: "fr",
+                    addedAt = System.currentTimeMillis(),
+                    publisher = publisher,
+                    publishedDate = publishedDate,
+                    subjects = subjects,
+                    isbn = isbn,
+                    seriesName = seriesInfo?.first,
+                    seriesIndex = seriesInfo?.second,
+                    sourceFolder = sourceFolder
+                )
+
+                onProgress(0.25f, "Enregistrement du livre...")
+                bookDao.insert(book.toEntity(epubFile.absolutePath, coverPath))
+
+                // ── Import basé TOC (les chapitres = entrées du TOC, pas du spine) ──
+                val startCacheProgress = 0.25f
+                val endCacheProgress = 1.00f
+                val progressRange = endCacheProgress - startCacheProgress
+
+                for (i in 0 until totalChapters) {
+                    val progressFraction = startCacheProgress + progressRange * (i.toFloat() / totalChapters)
+                    val (tocLink, tocLevel) = flatToc[i]
+                    val chapterTitle = tocLink.title?.takeIf { it.isNotBlank() } ?: "Chapitre ${i + 1}"
+                    tocEntries.add(TocEntry(index = i, title = chapterTitle, level = tocLevel))
+                    onProgress(progressFraction, "Optimisation : $chapterTitle...")
+
+                    try {
+                        val nextTocLink = flatToc.getOrNull(i + 1)?.first
+                        val anchoredRange = spineIndex.resolveAnchoredRange(tocLink, nextTocLink)
+                        val spineRange = anchoredRange.spineRange
+
+                        if (spineRange.isEmpty()) {
+                            Log.w("BookRepo", "TOC '$chapterTitle' (${tocLink.href}) non trouvé dans le spine — ignoré")
+                            sentenceCacheDao.updateChapterTitle(bookId, i, "$chapterTitle (non trouvé)")
+                            continue
+                        }
+
+                        // Concaténer le texte + les RichBlocks de tous les fichiers spine de la plage
+                        val richBlocks = mutableListOf<RichBlock>()
+                        val combinedHtml = buildString {
+                            for (spineIdx in spineRange) {
+                                val link = publication.readingOrder[spineIdx]
+                                val spineHref = link.href.toString()
+                                var raw = extractRawHtml(zipIndex, spineHref)
+                                if (raw.isBlank()) continue
+
+                                val isFirst = spineIdx == spineRange.first
+                                val isLast = spineIdx == spineRange.last
+                                val startAnchor = if (isFirst) anchoredRange.startAnchor else null
+                                val endAnchor = if (isLast) anchoredRange.endAnchor else null
+                                if (startAnchor != null || endAnchor != null) {
+                                    raw = sliceByAnchors(raw, startAnchor, endAnchor)
+                                }
+
+                                append(stripHtml(raw))
+                                append("\n\n")
+                                richBlocks.addAll(
+                                    extractRichBlocks(raw, zipIndex, spineHref, imagesDir, richBlocks.size)
+                                )
+                            }
+                        }
+
+                        val sentences = chunkText(bookId, i, combinedHtml)
+                        sentenceCacheDao.updateChapterTitle(bookId, i, chapterTitle)
+
+                        // Longueur du chapitre en caractères, pour la pondération de la progression
+                        // (voir architecture.md §11.3) — calculée gratuitement, combinedHtml est déjà
+                        // en mémoire à cet endroit, aucun reparsing.
+                        tocEntries[i] = tocEntries[i].copy(charCount = combinedHtml.length)
+
+                        val richEntities = richBlocks.map { it.toEntity(bookId, i) }
+                        if (richEntities.isNotEmpty()) richBlockCacheDao.insertAll(richEntities)
+
+                        if (sentences.isNotEmpty()) {
+                            val ftsEntries = sentences.map { sentence ->
+                                SentenceFts(
+                                    bookId = bookId,
+                                    chapterIndex = i,
+                                    sentenceIndex = sentence.index,
+                                    text = sentence.text
+                                )
+                            }
+                            searchDao.insertAll(ftsEntries)
+                        }
+
+                        Log.d("BookRepo", "Chapitre TOC $i '$chapterTitle' : spine ${spineRange.first}..${spineRange.last} (${spineRange.count()} fichiers, ${richBlocks.size} blocs riches)")
+                    } catch (e: Exception) {
+                        Log.e("BookRepo", "Erreur import chapitre TOC $i '$chapterTitle' : ${e.message}", e)
+                        CrashReporter.recordException(e)
+                    }
+                }
+
+                // Persister les vrais titres TOC maintenant qu'on les a tous collectés
+                if (tocEntries.isNotEmpty()) {
+                    bookDao.insert(book.copy(tocEntries = tocEntries).toEntity(epubFile.absolutePath, coverPath))
+                }
+
+                onProgress(1.00f, "Livre optimisé et prêt !")
+                book.copy(tocEntries = tocEntries)
+            } finally {
+                zipIndex.close()
+            }
         }
 
     override suspend fun getChapter(bookId: String, chapterIndex: Int): Chapter =
@@ -337,11 +367,13 @@ class BookRepositoryImpl @Inject constructor(
                 ?: throw IllegalStateException("Chapitre $chapterIndex introuvable")
 
             val spineHref = link.href.toString()
-            val raw = extractRawHtml(epubFile, spineHref)
+            val (raw, richBlocks) = openZipIndex(epubFile).use { zipIndex ->
+                val rawHtml = extractRawHtml(zipIndex, spineHref)
+                val imagesDir = File(epubDir, "images").apply { mkdirs() }
+                rawHtml to extractRichBlocks(rawHtml, zipIndex, spineHref, imagesDir, 0)
+            }
             val text = stripHtml(raw)
             val sentences = chunkText(bookId, chapterIndex, text)
-            val imagesDir = File(epubDir, "images").apply { mkdirs() }
-            val richBlocks = extractRichBlocks(raw, epubFile, spineHref, imagesDir, 0)
             val richEntities = richBlocks.map { it.toEntity(bookId, chapterIndex) }
             if (richEntities.isNotEmpty()) richBlockCacheDao.insertAll(richEntities)
 
@@ -379,7 +411,7 @@ class BookRepositoryImpl @Inject constructor(
             } catch (e: Exception) {
                 Log.w("BookRepo", "regenerateCover: ouverture Readium échouée pour $bookId : ${e.message}")
                 null
-            } ?: extractCoverHeuristic(epubFile, epubDir, freshFileName)
+            } ?: openZipIndex(epubFile).use { zipIndex -> extractCoverHeuristic(zipIndex, epubDir, freshFileName) }
 
             bookDao.updateCoverPath(bookId, newPath)
             newPath
@@ -444,19 +476,16 @@ class BookRepositoryImpl @Inject constructor(
         ?: throw IllegalStateException("Impossible d'ouvrir l'EPUB")
 
     /** Lit le contenu XHTML brut (non nettoyé) d'une entrée du ZIP EPUB. */
-    private fun extractRawHtml(epubFile: File, href: String): String {
+    private fun extractRawHtml(zipIndex: EpubZipIndex, href: String): String {
         return try {
-            ZipFile(epubFile).use { zip ->
-                val entry = zip.entries().asSequence()
-                    .find { it.name.endsWith(href) || it.name == href }
-                if (entry != null) {
-                    val html = zip.getInputStream(entry).bufferedReader().readText()
-                    Log.d("BookRepo", "Chapter HTML: ${html.length}B, href=$href, entry=${entry.name}")
-                    html
-                } else {
-                    Log.w("BookRepo", "Entry not found for href=$href")
-                    ""
-                }
+            val entry = zipIndex.find(href)
+            if (entry != null) {
+                val html = zipIndex.inputStream(entry).bufferedReader().readText()
+                Log.d("BookRepo", "Chapter HTML: ${html.length}B, href=$href, entry=${entry.name}")
+                html
+            } else {
+                Log.w("BookRepo", "Entry not found for href=$href")
+                ""
             }
         } catch (e: Exception) {
             Log.e("BookRepo", "Error extracting HTML for href=$href", e)
@@ -516,27 +545,25 @@ class BookRepositoryImpl @Inject constructor(
     }
 
     /** EPUB2 : fallback heuristique sur les noms de fichiers de l'archive ZIP. */
-    private fun extractCoverHeuristic(epubFile: File, epubDir: File, fileName: String = "cover.jpg"): String? {
+    private fun extractCoverHeuristic(zipIndex: EpubZipIndex, epubDir: File, fileName: String = "cover.jpg"): String? {
         return try {
-            ZipFile(epubFile).use { zip ->
-                val entry = zip.entries().asSequence()
-                    .filter { !it.isDirectory }
-                    .find { entry ->
-                        val name = entry.name.lowercase()
-                        (name.contains("cover") || name.contains("couverture") || name.contains("folder")) &&
-                                (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png"))
-                    }
-                if (entry != null) {
-                    val coverFile = File(epubDir, fileName)
-                    zip.getInputStream(entry).use { input ->
-                        coverFile.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    Log.d("BookRepo", "Couverture extraite avec succès de l'archive ZIP (heuristique) : ${coverFile.absolutePath}")
-                    coverFile.absolutePath
-                } else {
-                    Log.w("BookRepo", "Aucune couverture trouvée dans le fichier ZIP.")
-                    null
+            val entry = zipIndex.entriesSequence()
+                .filter { !it.isDirectory }
+                .find { entry ->
+                    val name = entry.name.lowercase()
+                    (name.contains("cover") || name.contains("couverture") || name.contains("folder")) &&
+                            (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png"))
                 }
+            if (entry != null) {
+                val coverFile = File(epubDir, fileName)
+                zipIndex.inputStream(entry).use { input ->
+                    coverFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                Log.d("BookRepo", "Couverture extraite avec succès de l'archive ZIP (heuristique) : ${coverFile.absolutePath}")
+                coverFile.absolutePath
+            } else {
+                Log.w("BookRepo", "Aucune couverture trouvée dans le fichier ZIP.")
+                null
             }
         } catch (e: Exception) {
             Log.e("BookRepo", "Erreur lors de l'extraction de la couverture du ZIP", e)
@@ -549,28 +576,24 @@ class BookRepositoryImpl @Inject constructor(
      * EPUB2 : fallback sur `<meta name="calibre:series" content="..."/>` dans le fichier OPF,
      * pour les livres qui n'exposent pas de collection EPUB3 (`belongsTo`) reconnue par Readium.
      */
-    private fun extractCalibreSeriesFallback(epubFile: File): Pair<String, Float?>? {
+    private fun extractCalibreSeriesFallback(zipIndex: EpubZipIndex): Pair<String, Float?>? {
         return try {
-            ZipFile(epubFile).use { zip ->
-                val containerEntry = zip.entries().asSequence()
-                    .find { it.name.endsWith("META-INF/container.xml") } ?: return null
-                val containerXml = zip.getInputStream(containerEntry).bufferedReader().readText()
-                val containerDoc = Jsoup.parse(containerXml, "", org.jsoup.parser.Parser.xmlParser())
-                val opfPath = containerDoc.select("rootfile").firstOrNull()?.attr("full-path")
-                    ?.takeIf { it.isNotBlank() } ?: return null
+            val containerEntry = zipIndex.find("META-INF/container.xml") ?: return null
+            val containerXml = zipIndex.inputStream(containerEntry).bufferedReader().readText()
+            val containerDoc = Jsoup.parse(containerXml, "", org.jsoup.parser.Parser.xmlParser())
+            val opfPath = containerDoc.select("rootfile").firstOrNull()?.attr("full-path")
+                ?.takeIf { it.isNotBlank() } ?: return null
 
-                val opfEntry = zip.entries().asSequence()
-                    .find { it.name == opfPath || it.name.endsWith(opfPath) } ?: return null
-                val opfXml = zip.getInputStream(opfEntry).bufferedReader().readText()
-                val opfDoc = Jsoup.parse(opfXml, "", org.jsoup.parser.Parser.xmlParser())
+            val opfEntry = zipIndex.find(opfPath) ?: return null
+            val opfXml = zipIndex.inputStream(opfEntry).bufferedReader().readText()
+            val opfDoc = Jsoup.parse(opfXml, "", org.jsoup.parser.Parser.xmlParser())
 
-                val seriesName = opfDoc.select("meta[name=calibre:series]").firstOrNull()
-                    ?.attr("content")?.takeIf { it.isNotBlank() } ?: return null
-                val seriesIndex = opfDoc.select("meta[name=calibre:series_index]").firstOrNull()
-                    ?.attr("content")?.toFloatOrNull()
+            val seriesName = opfDoc.select("meta[name=calibre:series]").firstOrNull()
+                ?.attr("content")?.takeIf { it.isNotBlank() } ?: return null
+            val seriesIndex = opfDoc.select("meta[name=calibre:series_index]").firstOrNull()
+                ?.attr("content")?.toFloatOrNull()
 
-                seriesName to seriesIndex
-            }
+            seriesName to seriesIndex
         } catch (e: Exception) {
             Log.w("BookRepo", "Erreur lecture calibre:series dans l'OPF", e)
             null
@@ -621,7 +644,7 @@ class BookRepositoryImpl @Inject constructor(
      */
     private fun extractRichBlocks(
         html: String,
-        epubFile: File,
+        zipIndex: EpubZipIndex,
         spineHref: String,
         imagesDir: File,
         startIndex: Int
@@ -634,7 +657,7 @@ class BookRepositoryImpl @Inject constructor(
         var blockIndex = startIndex
 
         for (child in body.children()) {
-            val block = processElement(child, blockIndex, epubFile, spineHref, imagesDir) ?: continue
+            val block = processElement(child, blockIndex, zipIndex, spineHref, imagesDir) ?: continue
             blocks.add(block)
             blockIndex++
         }
@@ -645,7 +668,7 @@ class BookRepositoryImpl @Inject constructor(
     private fun processElement(
         el: Element,
         index: Int,
-        epubFile: File,
+        zipIndex: EpubZipIndex,
         spineHref: String,
         imagesDir: File
     ): RichBlock? {
@@ -659,7 +682,7 @@ class BookRepositoryImpl @Inject constructor(
         // Images
         if (tagName == "img" || tagName == "image") {
             val src = el.attr("src").ifBlank { el.attr("xlink:href") }
-            return resolveImageBlock(src, el.attr("alt"), index, epubFile, spineHref, imagesDir)
+            return resolveImageBlock(src, el.attr("alt"), index, zipIndex, spineHref, imagesDir)
         }
 
         // Figure avec image
@@ -667,7 +690,7 @@ class BookRepositoryImpl @Inject constructor(
             val img = el.selectFirst("img") ?: el.selectFirst("image")
             if (img != null) {
                 val src = img.attr("src").ifBlank { img.attr("xlink:href") }
-                return resolveImageBlock(src, img.attr("alt"), index, epubFile, spineHref, imagesDir)
+                return resolveImageBlock(src, img.attr("alt"), index, zipIndex, spineHref, imagesDir)
             }
         }
 
@@ -712,12 +735,12 @@ class BookRepositoryImpl @Inject constructor(
         src: String,
         alt: String,
         index: Int,
-        epubFile: File,
+        zipIndex: EpubZipIndex,
         spineHref: String,
         imagesDir: File
     ): RichBlock.EpubImage? {
         if (src.isBlank() || src.startsWith("data:")) return null
-        val resolved = extractAndSaveImage(epubFile, spineHref, src, imagesDir) ?: return null
+        val resolved = extractAndSaveImage(zipIndex, spineHref, src, imagesDir) ?: return null
         return RichBlock.EpubImage(index, resolved, alt)
     }
 
@@ -776,32 +799,28 @@ class BookRepositoryImpl @Inject constructor(
      * d'un chemin de fichier réel).
      */
     private fun extractAndSaveImage(
-        epubFile: File,
+        zipIndex: EpubZipIndex,
         spineHref: String,
         imgHref: String,
         imagesDir: File
     ): String? {
         return try {
             val resolvedPath = resolveRelativeHref(spineHref, imgHref)
-            ZipFile(epubFile).use { zip ->
-                val entry = zip.entries().asSequence()
-                    .find { it.name == resolvedPath || it.name.endsWith(resolvedPath) }
-                    ?: zip.entries().asSequence()
-                        .find { it.name.endsWith(imgHref.substringAfterLast("/")) }
-                if (entry == null) {
-                    Log.w("BookRepo", "Image introuvable : $imgHref (résolu : $resolvedPath)")
-                    return null
-                }
-                val extension = entry.name.substringAfterLast(".", "img").lowercase().take(4)
-                val fileName = "img_${entry.name.hashCode().toString(16).removePrefix("-")}.$extension"
-                val outFile = File(imagesDir, fileName)
-                if (!outFile.exists()) {
-                    zip.getInputStream(entry).use { input ->
-                        outFile.outputStream().use { output -> input.copyTo(output) }
-                    }
-                }
-                outFile.absolutePath
+            val entry = zipIndex.find(resolvedPath)
+                ?: zipIndex.find(imgHref.substringAfterLast("/"))
+            if (entry == null) {
+                Log.w("BookRepo", "Image introuvable : $imgHref (résolu : $resolvedPath)")
+                return null
             }
+            val extension = entry.name.substringAfterLast(".", "img").lowercase().take(4)
+            val fileName = "img_${entry.name.hashCode().toString(16).removePrefix("-")}.$extension"
+            val outFile = File(imagesDir, fileName)
+            if (!outFile.exists()) {
+                zipIndex.inputStream(entry).use { input ->
+                    outFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+            outFile.absolutePath
         } catch (e: Exception) {
             Log.e("BookRepo", "Erreur extraction image $imgHref", e)
             CrashReporter.recordException(e)
