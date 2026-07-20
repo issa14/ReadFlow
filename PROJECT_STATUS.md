@@ -1,7 +1,7 @@
 # 📊 InkTone — Suivi d'Avancement Projet
 
 > Dernière mise à jour : 2026-07-20  
-> Phase actuelle : **Plan Top-Tier — Phases 0 et 1 ✅ complétées, Phase 2 à venir**  
+> Phase actuelle : **Plan Top-Tier — Phases 0, 1 et 2 ✅ complétées, Phase 3 à venir**  
 > Progression globale : **~95%**  
 > Moteurs TTS : **Piper VITS `fr_FR-upmc-medium`** — 2 locuteurs Jessica ♀ + Pierre ♂ (local) + **Microsoft Edge TTS** (cloud, Vivienne & Henri)  
 > Tests unitaires : **130 tests, 0 échec** (+ 3 tests instrumentés sur appareil réel — migration Room et reprise de lecture)  
@@ -220,6 +220,30 @@ Voir [`CHANGELOG.md`](./CHANGELOG.md) pour le détail complet.
 **Tests ajoutés** : `CalculateReadingProgressUseCaseTest` (pondération sur chapitres inégaux, dégradation gracieuse), `InkToneDatabaseMigrationTest` (migration 15→16 sur SQLite réel, instrumenté), `ReadingProgressIntegrationTest` (scénario complet ouverture → scroll manuel sans audio → simulation de fermeture de process → réouverture → position restaurée, instrumenté), garde-fous régression sur `startFrom`/`stop()` dans `ReaderViewModelTest` — vérifiés capables de détecter la régression (bug réintroduit temporairement, suite rouge, puis reverti).
 
 **Validation** : `./gradlew assembleDebug` ✅, `testDebugUnitTest` ✅ (130 tests, 0 échec), `connectedDebugAndroidTest` ✅ (3 tests instrumentés sur appareil physique V2206, 0 échec).
+
+**Corrections complémentaires découvertes en testant la Phase 1 sur appareil** (hors périmètre initial, corrigées au fil de l'eau) :
+- Deux crashs au lancement liés à `fallbackToDestructiveMigrationFrom()` (Room refuse tout chevauchement, y compris la version de fin d'une migration explicite — pas seulement son départ).
+- Badge `%` de la bibliothèque tronqué au lieu d'arrondi (`0.84% → "0%"` au lieu de `"1%"`), donnant l'impression trompeuse qu'aucune progression n'était enregistrée.
+- Bibliothèque jamais rafraîchie au retour du Reader (le ViewModel survit dans la back stack Compose Navigation) — ajout d'un refresh sur `ON_RESUME`.
+- Bouton "Passer" de l'onboarding n'appelait jamais `onComplete()` — l'onboarding réapparaissait à chaque lancement si l'utilisateur ne tapait pas ensuite "Commencer".
+
+### Phase 5g — Plan Top-Tier, Phase 2 : Performance de l'import EPUB ✅ COMPLÉTÉE (2026-07-20)
+
+**Branche** `main` — Phase 2 exécutée selon [`PLAN_ACTION_TOP_TIER_CLAUDECODE.md`](./PLAN_ACTION_TOP_TIER_CLAUDECODE.md).
+
+| # | Tâche | Statut | Priorité |
+|---|---|---|---|
+| 2.1 | Une seule ouverture ZIP par import (`EpubZipIndex`, index O(1)) | ✅ Fait | 🔴 |
+| 2.2 | Traitement parallèle des chapitres (`limitedParallelism(4)` + `async`/`awaitAll`) | ✅ Fait | 🟠 |
+| 2.2bis | Sous-problème découvert : hrefs de TOC percent-encodés non résolus dans le spine | 📋 Documenté, non corrigé | 🟠 |
+
+**Détail** :
+- `extractRawHtml()`, `extractAndSaveImage()`, `extractCoverHeuristic()`, `extractCalibreSeriesFallback()` ouvraient chacune leur propre `ZipFile` et rescannaient linéairement toutes les entrées à chaque appel (potentiellement 70-100+ fois par import). Remplacé par un `ZipFile` unique + `Map<String, ZipEntry>` indexée une fois, recherche O(1) avec repli par suffixe préservant le comportement existant. `getChapter()` et `regenerateCover()` en bénéficient aussi.
+- Chapitres traités avec une concurrence limitée à 4 ; `tocEntries` passe d'une liste mutable partagée (course de données potentielle) à un tableau pré-dimensionné où chaque coroutine n'écrit que son propre index ; `onProgress` agrégé sur un compteur atomique de chapitres terminés.
+- `EpubZipIndex` rendu sûr pour un accès concurrent (verrou sur les lectures brutes, traitement CPU-bound hors verrou) ; `extractAndSaveImage()` rendu atomique (vérification + écriture) pour éviter une course si deux chapitres partagent une image.
+- **Sous-problème découvert (2.2bis)**, non corrigé dans cette phase : un EPUB Calibre avec ancres de TOC percent-encodées (`%23` au lieu de `#`) échoue entièrement à résoudre sa table des matières dans `SpineIndex.kt` (code non touché par la Phase 2, bug pré-existant). Le livre s'importe sans erreur visible mais avec un contenu vide. À traiter séparément (URL-decode systématique des hrefs avant comparaison).
+
+**Validation** : `./gradlew assembleDebug` ✅, `testDebugUnitTest` ✅. Mesures réelles sur appareil physique — trois imports 2.1 sans pic de latence par chapitre (27 chapitres en 2,5-4,5s) ; import 2.2 déclenché avec succès sans crash, mesure chiffrée du gain spécifique de la parallélisation non complétée dans cette session (livre de test suivant révélant le bug 2.2bis avant qu'une seconde mesure valide n'ait pu être capturée).
 
 ### 🔄 Historique TTS : Kokoro → Piper
 
