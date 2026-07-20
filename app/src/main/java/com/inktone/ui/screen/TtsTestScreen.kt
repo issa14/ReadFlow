@@ -90,7 +90,7 @@ fun TtsTestScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("🎤 Test TTS — InkTone", style = MaterialTheme.typography.headlineSmall)
+        Text("Test TTS — InkTone", style = MaterialTheme.typography.headlineSmall)
 
         // Initialisation
         Button(
@@ -149,14 +149,14 @@ fun TtsTestScreen() {
             onClick = { epubPicker.launch(arrayOf("application/epub+zip")) },
             enabled = !importing
         ) {
-            Text(if (importing) "⏳ Import..." else "📖 Importer un EPUB de test")
+            Text(if (importing) "Import..." else "Importer un EPUB de test")
         }
 
         importedBook?.let { book ->
             var selectedChapter by remember { mutableIntStateOf(0) }
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text("📕 ${book.title}", style = MaterialTheme.typography.titleSmall)
+                    Text("${book.title}", style = MaterialTheme.typography.titleSmall)
                     Text("Auteur : ${book.author}")
                     Text("Chapitres : ${book.totalChapters}")
                     Text("Langue : ${book.language}")
@@ -217,12 +217,12 @@ fun TtsTestScreen() {
 
         importError?.let {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                Text("❌ $it", modifier = Modifier.padding(12.dp))
+                Text("$it", modifier = Modifier.padding(12.dp))
             }
         }
 
         if (initialized) {
-            Text("✅ Moteur prêt — 2 voix disponibles", color = MaterialTheme.colorScheme.primary)
+            Text("Moteur prêt — 2 voix disponibles", color = MaterialTheme.colorScheme.primary)
 
             // Choix de la voix
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -285,7 +285,7 @@ fun TtsTestScreen() {
                 },
                 enabled = !loading && texte.isNotBlank()
             ) {
-                Text(if (playing) "🔊 Lecture..." else if (loading) "Synthèse..." else "2. Parler")
+                Text(if (playing) "Lecture..." else if (loading) "Synthèse..." else "2. Parler")
             }
 
             // Bouton test phonémisation (10 phrases)
@@ -315,7 +315,7 @@ fun TtsTestScreen() {
                 enabled = !testRunning,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
-                Text(if (testRunning) "⏳ Test en cours..." else "3. Test phonémisation (10 phrases)")
+                Text(if (testRunning) "Test en cours..." else "3. Test phonémisation (10 phrases)")
             }
 
             // Benchmark RTF (phrases courtes à longues)
@@ -349,14 +349,14 @@ fun TtsTestScreen() {
                 enabled = !benchRunning,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
             ) {
-                Text(if (benchRunning) "⏳ Benchmark..." else "4. Benchmark RTF (5 longueurs)")
+                Text(if (benchRunning) "Benchmark..." else "4. Benchmark RTF (5 longueurs)")
             }
 
             if (benchResults.isNotEmpty()) {
-                Text("📊 RTF par longueur :", style = MaterialTheme.typography.titleSmall)
+                Text("RTF par longueur :", style = MaterialTheme.typography.titleSmall)
                 benchResults.forEach { (label, time, rtf) ->
                     Text(
-                        "• $label : ${time}ms, RTF=${"%.2f".format(rtf)} ${if (rtf < 1f) "✅" else "⚠️"}",
+                        "• $label : ${time}ms, RTF=${"%.2f".format(rtf)} ${if (rtf < 1f) "OK" else "LENT"}",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -394,22 +394,22 @@ fun TtsTestScreen() {
                 enabled = !e2eRunning,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
-                Text(if (e2eRunning) "⏳ Test timestamps..." else "5. Test timestamps (4 phrases + son)")
+                Text(if (e2eRunning) "Test timestamps..." else "5. Test timestamps (4 phrases + son)")
             }
 
             if (e2eResults.isNotEmpty()) {
-                Text("⏱️ Timeline (${e2eResults.size} phrases, ${e2eTotalMs}ms) :",
+                Text("Timeline (${e2eResults.size} phrases, ${e2eTotalMs}ms) :",
                     style = MaterialTheme.typography.titleSmall)
                 e2eResults.forEachIndexed { i, (phrase, start, end) ->
                     Text("[${start / 1000}.${(start % 1000) / 100}s → ${end / 1000}.${(end % 1000) / 100}s] $phrase",
                         style = MaterialTheme.typography.bodySmall)
                 }
-                Text("✅ Prêt pour le surlignage synchronisé !",
+                Text("Prêt pour le surlignage synchronisé !",
                     color = MaterialTheme.colorScheme.primary)
             }
             // Résultats du test phonémisation
             if (testResults.isNotEmpty()) {
-                Text("📋 Résultats (${testResults.size} phrases) :", style = MaterialTheme.typography.titleSmall)
+                Text("Résultats (${testResults.size} phrases) :", style = MaterialTheme.typography.titleSmall)
                 var totalMs = 0L
                 testResults.forEachIndexed { i, (phrase, r) ->
                     totalMs += r.synthesisTimeMs
@@ -421,7 +421,7 @@ fun TtsTestScreen() {
                 }
                 val avgRtf = testResults.map { it.second.realTimeFactor }.average()
                 Text(
-                    "📊 RTF moyen : ${"%.2f".format(avgRtf)} (${if (avgRtf < 1f) "✅" else "⚠️"}) | Temps total : ${totalMs}ms",
+                    "RTF moyen : ${"%.2f".format(avgRtf)} (${if (avgRtf < 1f) "OK" else "LENT"}) | Temps total : ${totalMs}ms",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -429,12 +429,12 @@ fun TtsTestScreen() {
             result?.let { r ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("📊 Résultat", style = MaterialTheme.typography.titleSmall)
+                        Text("Résultat", style = MaterialTheme.typography.titleSmall)
                         Text("• Échantillons : ${r.samples.size}")
                         Text("• Fréquence : ${r.sampleRate} Hz")
                         Text("• Durée audio : ${r.audioDurationMs} ms")
                         Text("• Temps synthèse : ${r.synthesisTimeMs} ms")
-                        Text("• RTF : ${"%.2f".format(r.realTimeFactor)} ${if (r.realTimeFactor < 1f) "✅" else "⚠️"}")
+                        Text("• RTF : ${"%.2f".format(r.realTimeFactor)} ${if (r.realTimeFactor < 1f) "OK" else "LENT"}")
                         Text("• Voix : ${r.voiceLabel}")
                     }
                 }
@@ -449,7 +449,7 @@ fun TtsTestScreen() {
                 )
             ) {
                 Text(
-                    "❌ $it",
+                    "$it",
                     modifier = Modifier.padding(12.dp),
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
