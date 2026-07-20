@@ -58,10 +58,12 @@ object AppModule {
          // Le chemin 6→13 n'a jamais eu de migration explicite (versions consommées pendant
          // une période de développement pré-beta sans base installée réelle à reconstituer
          // fidèlement — voir architecture.md §11.1 et PLAN_ACTION_TOP_TIER_CLAUDECODE.md 1.2bis).
-         // Restreint volontairement le fallback destructif à ces versions précises : toute
-         // future migration non couverte au-delà de la version 13 fera planter l'app au lieu
-         // d'effacer silencieusement la base d'un testeur.
-         .fallbackToDestructiveMigrationFrom(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+         // Room refuse qu'une version soit à la fois couverte par une Migration explicite et
+         // listée ici (IllegalArgumentException à build()) — seules 6 à 12 n'ont aucun chemin
+         // explicite (5→6 existe, 13→14 existe). Toute future migration non couverte au-delà
+         // de la version 13 fera planter l'app au lieu d'effacer silencieusement la base d'un
+         // testeur.
+         .fallbackToDestructiveMigrationFrom(6, 7, 8, 9, 10, 11, 12)
          .build()
     }
 

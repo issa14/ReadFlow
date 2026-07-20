@@ -28,7 +28,7 @@ Phase 1 exécutée dans l'ordre 1.1 → 1.8 selon [`PLAN_ACTION_TOP_TIER_CLAUDEC
 
 #### Fixed — 🟠 Sous-problème découvert (hors périmètre initial, ajouté au plan en 1.2bis)
 
-- **Trou de migration Room `6→13`** — aucune `Migration` explicite pour ce chemin (versions consommées pendant une période de churn pré-beta, dont deux commits divergents ayant chacun bumpé vers la version 12 indépendamment), couvert silencieusement par `fallbackToDestructiveMigration()`. Remplacé par `fallbackToDestructiveMigrationFrom(1..12)` : seul ce trou historique (sans base installée réelle à reconstituer) tolère encore un fallback destructif — tout futur trou de migration non couvert fera désormais planter l'app au lieu d'effacer silencieusement la base d'un testeur.
+- **Trou de migration Room `6→13`** — aucune `Migration` explicite pour ce chemin (versions consommées pendant une période de churn pré-beta, dont deux commits divergents ayant chacun bumpé vers la version 12 indépendamment), couvert silencieusement par `fallbackToDestructiveMigration()`. Remplacé par `fallbackToDestructiveMigrationFrom(6..12)` (Room refuse qu'une version soit à la fois couverte par une `Migration` explicite et listée en fallback — 1 à 5 ont déjà leur propre migration) : seul ce trou historique (sans base installée réelle à reconstituer) tolère encore un fallback destructif — tout futur trou de migration non couvert fera désormais planter l'app au lieu d'effacer silencieusement la base d'un testeur.
 
 #### Added — Tests
 
