@@ -55,6 +55,7 @@ import com.inktone.ui.screen.library.NavigationDestination
 import com.inktone.ui.screen.opds.OpdsScreen
 import com.inktone.ui.theme.ttsActive
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -628,8 +629,12 @@ private fun BookCover(
                 )
             }
 
-            // Badge progression (%)
-            val progressPct = (progress * 100).toInt().coerceIn(0, 100)
+            // Badge progression (%) — arrondi, pas tronqué : la pondération par longueur réelle
+            // de chapitre (voir architecture.md §11.3) donne des pourcentages précis qui
+            // peuvent rester sous 1% pendant un moment en début de livre long ; une troncature
+            // afficherait "0%" et donnerait l'impression trompeuse qu'aucune progression n'a
+            // été enregistrée.
+            val progressPct = (progress * 100).roundToInt().coerceIn(0, 100)
             val progressDescription = stringResource(R.string.cd_book_progress, progressPct)
             Box(
                 modifier = Modifier
