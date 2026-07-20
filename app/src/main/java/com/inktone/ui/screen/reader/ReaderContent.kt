@@ -45,6 +45,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
@@ -73,6 +74,19 @@ import kotlinx.coroutines.yield
 import java.io.File
 
 enum class ReadingMode { PAGED, SCROLL }
+
+/**
+ * Plafond de largeur du bloc de texte, pour rester dans une plage de ~65-75 caractères par
+ * ligne (confort de lecture reconnu en typographie) sur grand écran, au lieu de la largeur
+ * brute de l'écran moins une marge fixe. Approximation usuelle pour un script latin : largeur
+ * moyenne d'un caractère ≈ 0,5 × taille de police (35 ≈ 70 caractères × 0,5).
+ *
+ * En dessous du plafond (téléphone), n'a aucun effet visuel — `widthIn(max=...)` combiné à
+ * `fillMaxWidth()` ne fait que borner la largeur maximale, il ne force jamais un débordement.
+ * `horizontalMarginDp` s'applique EN PLUS de ce plafond (padding à l'intérieur de la largeur
+ * plafonnée), pas à sa place — voir PLAN_ACTION_TOP_TIER_CLAUDECODE.md §3.3.
+ */
+private fun readingContentMaxWidth(fontSizeSp: Float): Dp = (fontSizeSp * 35).dp
 
 @Composable
 fun ReaderContent(
@@ -294,7 +308,12 @@ private fun PagedContent(
     // utilisateur (boucle de rétroaction). Voir architecture.md §11.6.
     var isProgrammaticScroll by remember { mutableStateOf(false) }
 
-    LaunchedEffect(activeIdx, pages.size) {
+    // Clé sur `pages` (la liste entière, comparaison structurelle), pas `pages.size` — une
+    // rotation d'écran peut produire le même NOMBRE de pages avec des frontières différentes
+    // (répartition des phrases différente), auquel cas `pages.size` seul ne changerait pas et
+    // cet effet ne se redéclencherait jamais, laissant pagerState sur un numéro de page devenu
+    // incorrect pour le nouveau contenu. Voir PLAN_ACTION_TOP_TIER_CLAUDECODE.md §3.5.
+    LaunchedEffect(activeIdx, pages) {
         if (pages.isNotEmpty() && activeIdx in sentences.indices) {
             val targetPage = pages.indexOfFirst { page -> page.any { it.first == activeIdx } }
             if (targetPage != -1 && targetPage != pagerState.currentPage) {
@@ -327,7 +346,14 @@ private fun PagedContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars)
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentAlignment = Alignment.TopCenter
+    ) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .widthIn(max = readingContentMaxWidth(textStyle.fontSize.value))
+            .fillMaxWidth()
             .padding(horizontal = horizontalMarginDp.dp, vertical = 16.dp)
             .onSizeChanged { containerSize = it }
             .pointerInput(Unit) {
@@ -431,6 +457,7 @@ private fun PagedContent(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -461,6 +488,13 @@ private fun ScrollContent(
     annotations: List<AnnotationEntity>
 ) {
     val lazyListState = rememberLazyListState()
+    // Taille du bloc de texte capé (pas de l'écran entier) — le tiers central doit être
+    // calculé par rapport à ce bloc, qui peut être plus étroit que l'écran sur grand écran
+    // depuis le plafonnement de largeur (voir readingContentMaxWidth, §3.3). ReaderScreen
+    // calcule aussi une zone tiers-central, mais sur la largeur d'écran brute — cohérent tant
+    // que le bloc capé fait la largeur de l'écran (téléphone), plus après (tablette), d'où le
+    // filtrage local ici.
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     // Points d'ancrage pour les blocs purement structurels (image, séparateur) qui n'ont
     // aucun texte dans le flux de phrases — ils peuvent donc s'intercaler sans risque de
@@ -508,11 +542,25 @@ private fun ScrollContent(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars)
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentAlignment = Alignment.TopCenter
+    ) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .widthIn(max = readingContentMaxWidth(textStyle.fontSize.value))
+            .fillMaxWidth()
             .padding(horizontal = horizontalMarginDp.dp, vertical = 16.dp)
+            .onSizeChanged { containerSize = it }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { offset -> onTap(offset) },
+                    onTap = { offset ->
+                        if (containerSize.width > 0) {
+                            val left = containerSize.width / 3f
+                            val right = 2f * containerSize.width / 3f
+                            if (offset.x in left..right) onTap(offset)
+                        }
+                    },
                     onDoubleTap = { onDoubleTap() }
                 )
             }
@@ -577,6 +625,7 @@ private fun ScrollContent(
                 )
             }
         }
+    }
     }
 }
 

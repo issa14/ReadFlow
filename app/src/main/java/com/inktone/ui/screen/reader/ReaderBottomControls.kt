@@ -24,6 +24,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inktone.R
+import com.inktone.ui.theme.AppIcons
 
 @Composable
 fun UnifiedControlPanel(
@@ -31,6 +32,7 @@ fun UnifiedControlPanel(
     accentColor: Color,
     panelBg: Color,
     useOpenDyslexic: Boolean = false,
+    readingMode: ReadingMode = ReadingMode.PAGED,
     onTtsClick: () -> Unit,
     onTtsSettingsClick: () -> Unit,
     onThemeCycle: () -> Unit,
@@ -38,7 +40,11 @@ fun UnifiedControlPanel(
     onDisplaySettingsClick: () -> Unit,
     onSleepTimerClick: () -> Unit,
     onPrevChapter: () -> Unit,
-    onNextChapter: () -> Unit
+    onNextChapter: () -> Unit,
+    onToggleMode: () -> Unit = {},
+    onSearch: () -> Unit = {},
+    onBookmarks: () -> Unit = {},
+    onToc: () -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
 
@@ -150,6 +156,52 @@ fun UnifiedControlPanel(
                     label = "Veille",
                     tint = accentColor.copy(alpha = 0.5f),
                     onClick = onSleepTimerClick
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            HorizontalDivider(
+                color = accentColor.copy(alpha = 0.08f),
+                thickness = 0.5.dp
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // ── RANGÉE TERTIAIRE : navigation, ex-icônes de la top bar ──
+            // Déplacées ici plutôt que laissées en icônes séparées dans ReaderTopBar, qui
+            // tronquaient le titre du livre sur écran étroit — voir
+            // PLAN_ACTION_TOP_TIER_CLAUDECODE.md §3.4. Top bar et ce panneau sont toujours
+            // visibles ensemble (mêmes conditions dans ReaderScreen), donc pas besoin d'un
+            // point d'entrée de menu séparé dans la top bar.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SecondaryAction(
+                    icon = if (readingMode == ReadingMode.PAGED) AppIcons.ReadingModePaged else AppIcons.ReadingModeScroll,
+                    label = if (readingMode == ReadingMode.PAGED) "Défilement" else "Pages",
+                    tint = accentColor.copy(alpha = 0.5f),
+                    onClick = onToggleMode
+                )
+                SecondaryAction(
+                    icon = AppIcons.Search,
+                    label = "Recherche",
+                    tint = accentColor.copy(alpha = 0.5f),
+                    onClick = onSearch
+                )
+                SecondaryAction(
+                    icon = AppIcons.Bookmark,
+                    label = "Signets",
+                    tint = accentColor.copy(alpha = 0.5f),
+                    onClick = onBookmarks
+                )
+                SecondaryAction(
+                    icon = AppIcons.Toc,
+                    label = "Sommaire",
+                    tint = accentColor.copy(alpha = 0.5f),
+                    onClick = onToc
                 )
             }
         }

@@ -474,7 +474,13 @@ private fun ShelfGrid(
     onToggleFavorite: (String) -> Unit
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        // Adaptive plutôt que Fixed(3) : le nombre de colonnes suit la largeur réelle de
+        // l'écran (téléphone étroit → tablette) au lieu d'un compte figé qui laisse des
+        // couvertures minuscules sur grand écran ou serrées sur petit écran. 100.dp donne 3
+        // colonnes sur un téléphone ~360dp, cohérent avec le design actuel des jaquettes
+        // (BookCover est déjà fillMaxWidth + aspectRatio, sans largeur figée — voir
+        // PLAN_ACTION_TOP_TIER_CLAUDECODE.md §3.2).
+        columns = GridCells.Adaptive(minSize = 100.dp),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),

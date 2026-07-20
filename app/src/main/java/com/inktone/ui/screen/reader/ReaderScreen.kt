@@ -410,12 +410,7 @@ fun ReaderScreen(
             ReaderTopBar(
                 title = book?.title ?: "",
                 subtitle = "Ch. ${state.currentChapterIndex + 1}/${book?.totalChapters ?: 0}",
-                readingMode = readingMode,
-                onToggleMode = { readingMode = if (readingMode == ReadingMode.PAGED) ReadingMode.SCROLL else ReadingMode.PAGED },
-                onBack = onBack,
-                onToc = { viewModel.showTocSheet() },
-                onBookmarks = { book?.title?.let { onBookmarksClick(it) } },
-                onSearch = { book?.title?.let { onSearchClick(it) } }
+                onBack = onBack
             )
         }
 
@@ -435,6 +430,7 @@ fun ReaderScreen(
                 accentColor = accentColor,
                 panelBg = panelBg,
                 useOpenDyslexic = state.useOpenDyslexic,
+                readingMode = readingMode,
                 onTtsClick = { if (state.isPlaying) viewModel.pause() else viewModel.play() },
                 onTtsSettingsClick = { viewModel.showTtsSheet() },
                 onThemeCycle = { viewModel.cycleTheme() },
@@ -442,7 +438,11 @@ fun ReaderScreen(
                 onDisplaySettingsClick = { viewModel.showSettingsSheet() },
                 onSleepTimerClick = { viewModel.showTtsSheet() },
                 onPrevChapter = { viewModel.previousChapter() },
-                onNextChapter = { viewModel.nextChapter() }
+                onNextChapter = { viewModel.nextChapter() },
+                onToggleMode = { readingMode = if (readingMode == ReadingMode.PAGED) ReadingMode.SCROLL else ReadingMode.PAGED },
+                onSearch = { book?.title?.let { onSearchClick(it) } },
+                onBookmarks = { book?.title?.let { onBookmarksClick(it) } },
+                onToc = { viewModel.showTocSheet() }
             )
         }
 

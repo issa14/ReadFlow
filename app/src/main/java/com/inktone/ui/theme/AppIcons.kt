@@ -1,6 +1,7 @@
 package com.inktone.ui.theme
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.Bookmark
@@ -17,12 +18,15 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Error
 import androidx.compose.material.icons.outlined.HourglassEmpty
+import androidx.compose.material.icons.outlined.ImportContacts
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Smartphone
+import androidx.compose.material.icons.outlined.ViewDay
 import androidx.compose.material.icons.outlined.Warning
 
 /**
@@ -57,4 +61,9 @@ object AppIcons {
     val Speaking = Icons.AutoMirrored.Outlined.VolumeUp
     val Loading = Icons.Outlined.HourglassEmpty
     val Stats = Icons.Outlined.BarChart
+
+    val Search = Icons.Outlined.Search
+    val Toc = Icons.AutoMirrored.Outlined.List
+    val ReadingModePaged = Icons.Outlined.ViewDay
+    val ReadingModeScroll = Icons.Outlined.ImportContacts
 }

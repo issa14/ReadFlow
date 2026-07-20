@@ -5,7 +5,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import com.inktone.ui.theme.ttsActive
@@ -17,16 +16,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+/**
+ * Barre du haut du Reader — retour + titre/sous-titre uniquement. Les actions secondaires
+ * (mode de lecture, recherche, signets, table des matières) vivent désormais dans
+ * [UnifiedControlPanel] (visible en même temps que cette barre, jamais l'une sans l'autre —
+ * pas de point d'entrée séparé nécessaire) au lieu d'icônes séparées ici, qui tronquaient le
+ * titre sur écran étroit — voir PLAN_ACTION_TOP_TIER_CLAUDECODE.md §3.4.
+ */
 @Composable
 fun ReaderTopBar(
     title: String,
     subtitle: String,
-    readingMode: ReadingMode = ReadingMode.PAGED,
-    onToggleMode: () -> Unit = {},
-    onBack: () -> Unit,
-    onToc: () -> Unit,
-    onBookmarks: () -> Unit = {},
-    onSearch: () -> Unit = {}
+    onBack: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -46,19 +47,9 @@ fun ReaderTopBar(
                 Text(title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, color = MaterialTheme.colorScheme.outlineVariant, style = MaterialTheme.typography.labelSmall)
             }
-            IconButton(onClick = onToggleMode) {
-                Icon(
-                    if (readingMode == ReadingMode.PAGED) Icons.Outlined.ViewDay else Icons.Outlined.ImportContacts,
-                    contentDescription = if (readingMode == ReadingMode.PAGED) "Mode défilement" else "Mode paginé",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            @Suppress("DEPRECATION")
-            IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, "Rechercher", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-            @Suppress("DEPRECATION")
-            IconButton(onClick = onBookmarks) { Icon(Icons.Outlined.Bookmark, "Signets", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-            @Suppress("DEPRECATION")
-            IconButton(onClick = onToc) { Icon(Icons.Outlined.List, "TOC", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            // Espace fantôme de la même largeur que le bouton retour, pour garder le titre
+            // vraiment centré sur l'écran plutôt que centré sur l'espace restant à sa droite.
+            Spacer(Modifier.size(48.dp))
         }
     }
 }
