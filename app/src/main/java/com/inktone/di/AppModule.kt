@@ -12,6 +12,8 @@ import com.inktone.data.database.MIGRATION_2_3
 import com.inktone.data.database.MIGRATION_3_4
 import com.inktone.data.database.MIGRATION_4_5
 import com.inktone.data.database.MIGRATION_5_6
+import com.inktone.data.database.MIGRATION_13_14
+import com.inktone.data.database.MIGRATION_14_15
 import com.inktone.data.database.ProgressDao
 import com.inktone.data.database.PronunciationRuleDao
 import com.inktone.data.database.InkToneDatabase
@@ -51,7 +53,7 @@ object AppModule {
             context,
             InkToneDatabase::class.java,
             "inktone.db"
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_13_14, MIGRATION_14_15)
          .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
          .fallbackToDestructiveMigration()
          .build()

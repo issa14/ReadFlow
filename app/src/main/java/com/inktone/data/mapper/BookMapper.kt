@@ -33,7 +33,11 @@ fun BookEntity.toDomain() = Book(
     publisher = publisher,
     publishedDate = publishedDate,
     subjects = subjects.toStringList(),
-    isbn = isbn
+    isbn = isbn,
+    isFavorite = isFavorite,
+    seriesName = seriesName,
+    seriesIndex = seriesIndex,
+    sourceFolder = sourceFolder
 )
 
 fun Book.toEntity(filePath: String, coverPath: String? = null) = BookEntity(
@@ -50,7 +54,11 @@ fun Book.toEntity(filePath: String, coverPath: String? = null) = BookEntity(
     publisher = publisher,
     publishedDate = publishedDate,
     subjects = subjects.toJsonList(),
-    isbn = isbn
+    isbn = isbn,
+    isFavorite = isFavorite,
+    seriesName = seriesName,
+    seriesIndex = seriesIndex,
+    sourceFolder = sourceFolder
 )
 
 fun ProgressEntity.toDomain() = Progress(

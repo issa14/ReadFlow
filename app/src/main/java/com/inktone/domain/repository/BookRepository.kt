@@ -10,6 +10,7 @@ interface BookRepository {
     suspend fun importEpub(
         inputStream: InputStream,
         fileName: String,
+        sourceFolder: String? = null,
         onProgress: (progress: Float, status: String) -> Unit = { _, _ -> }
     ): Book
 
@@ -28,4 +29,10 @@ interface BookRepository {
 
     /** Retire les couvertures de tous les livres (retour au placeholder dégradé automatique). */
     suspend fun clearAllCovers()
+
+    /** Bascule le statut favori d'un livre. */
+    suspend fun setFavorite(bookId: String, isFavorite: Boolean)
+
+    /** Liste dédupliquée de tous les tags (subjects EPUB) présents dans la bibliothèque. */
+    suspend fun getAllTags(): List<String>
 }

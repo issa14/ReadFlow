@@ -17,6 +17,6 @@ class ParseEpubUseCase @Inject constructor(
         require(fileName.endsWith(".epub", ignoreCase = true)) {
             "Format non supporté : $fileName"
         }
-        return bookRepository.importEpub(inputStream, fileName, onProgress)
+        return bookRepository.importEpub(inputStream, fileName, onProgress = onProgress)
     }
 }

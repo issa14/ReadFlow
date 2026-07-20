@@ -6,9 +6,11 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -130,6 +133,7 @@ fun LibraryScreen(
                     } else {
                         TopBar(
                             currentDest = state.currentDestination,
+                            title = libraryHeaderLabel(state),
                             onMenu = { drawerScope.launch { drawerState.open() } },
                             onNavPopup = { showNavPopup = true },
                             onFilterMode = { viewModel.showFilterDialog() },
@@ -209,11 +213,26 @@ fun LibraryScreen(
                         NavigationDestination.LIBRARY -> {
                             when {
                                 state.isLoading && state.books.isEmpty() -> LoadingView()
+                                state.filterMode == FilterMode.SERIES -> SeriesGroupedView(
+                                    seriesMap = viewModel.booksGroupedBySeries(),
+                                    progressMap = state.bookProgress,
+                                    onBookClick = onBookClick,
+                                    onToggleFavorite = viewModel::toggleFavorite
+                                )
                                 state.books.isEmpty() && !state.isLoading -> EmptyView(
                                     onImportClick = { epubPicker.launch(arrayOf("application/epub+zip")) },
                                     onBrowseClick = { viewModel.navigateTo(NavigationDestination.FILES) }
                                 )
-                                else -> ShelfGrid(state.books, state.bookProgress, onBookClick)
+                                else -> Column {
+                                    if (state.filterMode == FilterMode.TAGS) {
+                                        TagsFilterBar(
+                                            availableTags = state.availableTags,
+                                            selectedTags = state.selectedTags,
+                                            onToggleTag = viewModel::toggleTagFilter
+                                        )
+                                    }
+                                    ShelfGrid(state.books, state.bookProgress, onBookClick, viewModel::toggleFavorite)
+                                }
                             }
                         }
                         NavigationDestination.RECENTS -> {
@@ -221,14 +240,12 @@ fun LibraryScreen(
                             if (recent.isEmpty()) EmptyView(
                                 onImportClick = { epubPicker.launch(arrayOf("application/epub+zip")) },
                                 onBrowseClick = { viewModel.navigateTo(NavigationDestination.FILES) }
-                            ) else ShelfGrid(recent, state.bookProgress, onBookClick)
+                            ) else ShelfGrid(recent, state.bookProgress, onBookClick, viewModel::toggleFavorite)
                         }
                         NavigationDestination.FILES -> {
                             FilesScreen(
                                 onFileSelected = { file ->
-                                    file.inputStream().use { stream ->
-                                        viewModel.importFile(stream, file.name)
-                                    }
+                                    viewModel.importFile(file)
                                     viewModel.navigateTo(NavigationDestination.LIBRARY)
                                 },
                                 onBack = { viewModel.navigateTo(NavigationDestination.LIBRARY) }
@@ -273,7 +290,13 @@ fun LibraryScreen(
                 navSubItems = state.navSubItems,
                 onDismiss = { showNavPopup = false },
                 onFilterSelect = { viewModel.setFilterMode(it) },
-                onSubItemSelect = { viewModel.selectNavSubItem(it) },
+                onSubItemSelect = { filterId ->
+                    if (filterId.startsWith("book:")) {
+                        onBookClick(filterId.removePrefix("book:"))
+                    } else {
+                        viewModel.selectNavSubItem(filterId)
+                    }
+                },
                 currentFilter = state.filterMode
             )
         }
@@ -332,10 +355,23 @@ fun LibraryScreen(
 //  TOP BAR — Style prototype (bleue, dropdown trigger)
 // ─────────────────────────────────────────────────────
 
+/** Titre de la TopBar : reflète le filtre actif (Favoris/Séries/Tags/Dossiers) quand on est sur la Bibliothèque. */
+private fun libraryHeaderLabel(state: LibraryUiState): String {
+    if (state.currentDestination != NavigationDestination.LIBRARY) return state.currentDestination.label
+    return when (state.filterMode) {
+        FilterMode.FAVORITES -> "Favoris"
+        FilterMode.SERIES -> "Séries"
+        FilterMode.TAGS -> "Tags"
+        FilterMode.FOLDER -> state.selectedFolder ?: "Dossiers"
+        else -> NavigationDestination.LIBRARY.label
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
     currentDest: NavigationDestination,
+    title: String,
     onMenu: () -> Unit,
     onNavPopup: () -> Unit,
     onFilterMode: () -> Unit,
@@ -350,7 +386,7 @@ private fun TopBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.clickable(onClick = onNavPopup)
             ) {
-                Text(currentDest.label, fontWeight = FontWeight.Medium, fontSize = 17.sp,
+                Text(title, fontWeight = FontWeight.Medium, fontSize = 17.sp,
                     color = MaterialTheme.colorScheme.onPrimary)
                 if (isLibrary) {
                     Spacer(Modifier.width(4.dp))
@@ -422,7 +458,12 @@ private fun SearchBar(
 // ─────────────────────────────────────────────────────
 
 @Composable
-private fun ShelfGrid(books: List<Book>, progressMap: Map<String, Float>, onBookClick: (String) -> Unit) {
+private fun ShelfGrid(
+    books: List<Book>,
+    progressMap: Map<String, Float>,
+    onBookClick: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit
+) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         contentPadding = PaddingValues(12.dp),
@@ -436,7 +477,99 @@ private fun ShelfGrid(books: List<Book>, progressMap: Map<String, Float>, onBook
                 book = book,
                 progress = progress,
                 gradientIndex = book.title.hashCode().mod(CoverGradients.size),
-                onClick = { onBookClick(book.id) }
+                onClick = { onBookClick(book.id) },
+                onToggleFavorite = { onToggleFavorite(book.id) }
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────
+//  SÉRIES — Groupes par nom de série, triés par tome
+// ─────────────────────────────────────────────────────
+
+@Composable
+private fun SeriesGroupedView(
+    seriesMap: Map<String, List<Book>>,
+    progressMap: Map<String, Float>,
+    onBookClick: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit
+) {
+    if (seriesMap.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "Aucune série détectée pour l'instant",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 14.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 48.dp)
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.padding(bottom = 80.dp)
+    ) {
+        seriesMap.forEach { (seriesName, seriesBooks) ->
+            item(key = "header_$seriesName") {
+                Text(
+                    seriesName,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            item(key = "row_$seriesName") {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    seriesBooks.forEach { book ->
+                        Box(modifier = Modifier.width(110.dp)) {
+                            BookCover(
+                                book = book,
+                                progress = progressMap[book.id] ?: 0f,
+                                gradientIndex = book.title.hashCode().mod(CoverGradients.size),
+                                onClick = { onBookClick(book.id) },
+                                onToggleFavorite = { onToggleFavorite(book.id) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────
+//  TAGS — Barre de chips filtrants (subjects EPUB)
+// ─────────────────────────────────────────────────────
+
+@Composable
+private fun TagsFilterBar(
+    availableTags: List<String>,
+    selectedTags: Set<String>,
+    onToggleTag: (String) -> Unit
+) {
+    if (availableTags.isEmpty()) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        availableTags.forEach { tag ->
+            FilterChip(
+                selected = tag in selectedTags,
+                onClick = { onToggleTag(tag) },
+                label = { Text(tag, fontSize = 12.sp) }
             )
         }
     }
@@ -447,7 +580,8 @@ private fun BookCover(
     book: Book,
     progress: Float,
     gradientIndex: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onToggleFavorite: () -> Unit
 ) {
     val gradient = CoverGradients[gradientIndex.coerceIn(0, CoverGradients.lastIndex)]
 
@@ -486,6 +620,22 @@ private fun BookCover(
                     modifier = Modifier.padding(8.dp),
                     maxLines = 5,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Bouton favori — coin supérieur droit, tap indépendant du clic sur la couverture
+            val favoriteDescription = if (book.isFavorite) "Retirer des favoris" else "Ajouter aux favoris"
+            IconButton(
+                onClick = onToggleFavorite,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(28.dp)
+            ) {
+                Icon(
+                    imageVector = if (book.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                    contentDescription = favoriteDescription,
+                    tint = if (book.isFavorite) Color(0xFFE0527A) else Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(18.dp)
                 )
             }
 
@@ -574,11 +724,11 @@ private fun LibraryNavigationPopup(
 
     val categories = listOf(
         "Tous les livres" to FilterMode.ALL,
-        "Favoris" to FilterMode.ALL,
-        "Séries" to FilterMode.ALL,
+        "Favoris" to FilterMode.FAVORITES,
+        "Séries" to FilterMode.SERIES,
         "Auteur" to FilterMode.BY_AUTHOR,
-        "Tags" to FilterMode.ALL,
-        "Dossiers" to FilterMode.ALL
+        "Tags" to FilterMode.TAGS,
+        "Dossiers" to FilterMode.FOLDER
     )
 
     val subItems = navSubItems[selectedCategory] ?: emptyList()
@@ -683,18 +833,20 @@ private fun LibraryNavigationPopup(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text(
-                                        "${item.count}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier
-                                            .background(
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.07f),
-                                                RoundedCornerShape(10.dp)
-                                            )
-                                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                                    )
+                                    if (item.count >= 0) {
+                                        Text(
+                                            "${item.count}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .background(
+                                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.07f),
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

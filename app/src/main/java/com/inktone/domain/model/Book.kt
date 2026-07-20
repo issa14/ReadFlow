@@ -14,5 +14,9 @@ data class Book(
     val publisher: String? = null,
     val publishedDate: String? = null,
     val subjects: List<String> = emptyList(),
-    val isbn: String? = null
+    val isbn: String? = null,
+    val isFavorite: Boolean = false,
+    val seriesName: String? = null,
+    val seriesIndex: Float? = null,
+    val sourceFolder: String? = null
 )

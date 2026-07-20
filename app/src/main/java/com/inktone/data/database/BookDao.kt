@@ -26,4 +26,10 @@ interface BookDao {
 
     @Query("UPDATE books SET coverPath = NULL")
     suspend fun clearAllCoverPaths()
+
+    @Query("UPDATE books SET isFavorite = :isFavorite WHERE id = :bookId")
+    suspend fun setFavorite(bookId: String, isFavorite: Boolean)
+
+    @Query("SELECT DISTINCT subjects FROM books WHERE subjects != '[]'")
+    suspend fun getAllSubjectsRaw(): List<String>
 }

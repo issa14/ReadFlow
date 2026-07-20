@@ -65,6 +65,23 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE books ADD COLUMN isFavorite INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE books ADD COLUMN seriesName TEXT")
+        db.execSQL("ALTER TABLE books ADD COLUMN seriesIndex REAL")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_books_isFavorite ON books (isFavorite)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_books_seriesName ON books (seriesName)")
+    }
+}
+
+val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE books ADD COLUMN sourceFolder TEXT")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_books_sourceFolder ON books (sourceFolder)")
+    }
+}
+
 @Database(
     entities = [
         BookEntity::class,
@@ -79,7 +96,7 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         ReadingSessionEntity::class,
         RichBlockCacheEntity::class
     ],
-    version = 13,
+    version = 15,
     exportSchema = false
 )
 abstract class InkToneDatabase : RoomDatabase() {

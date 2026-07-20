@@ -3,6 +3,8 @@ package com.inktone.data.repository
 import android.text.Html
 import android.content.Context
 import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.inktone.data.database.BookDao
 import com.inktone.data.database.ProgressDao
 import com.inktone.data.database.RichBlockCacheDao
@@ -81,10 +83,12 @@ class BookRepositoryImpl @Inject constructor(
     )
     private val retriever: AssetRetriever get() = AssetRetriever(context.contentResolver, httpClient)
     private val opener = PublicationOpener(EpubParser(), emptyList()) {}
+    private val gson = Gson()
 
     override suspend fun importEpub(
         inputStream: InputStream,
         fileName: String,
+        sourceFolder: String?,
         onProgress: (progress: Float, status: String) -> Unit
     ): Book =
         withContext(Dispatchers.IO) {
@@ -141,6 +145,19 @@ class BookRepositoryImpl @Inject constructor(
                 Log.w("BookRepo", "Lecture ISBN échouée : ${e.message}")
                 null
             }
+            val seriesInfo = try {
+                publication.metadata.belongsToSeries.firstOrNull()
+                    ?.let { it.name.takeIf { n -> n.isNotBlank() } to it.position?.toFloat() }
+                    ?.takeIf { it.first != null }
+            } catch (e: Exception) {
+                Log.w("BookRepo", "Lecture série (Readium) échouée : ${e.message}")
+                null
+            } ?: try {
+                extractCalibreSeriesFallback(epubFile)
+            } catch (e: Exception) {
+                Log.w("BookRepo", "Lecture série (calibre:series) échouée : ${e.message}")
+                null
+            }
 
             // Extraction de la couverture — Readium metadata d'abord (EPUB3), fallback heuristique ZIP (EPUB2)
             var coverPath: String? = extractCoverViaReadium(publication, epubDir)
@@ -178,7 +195,10 @@ class BookRepositoryImpl @Inject constructor(
                 publisher = publisher,
                 publishedDate = publishedDate,
                 subjects = subjects,
-                isbn = isbn
+                isbn = isbn,
+                seriesName = seriesInfo?.first,
+                seriesIndex = seriesInfo?.second,
+                sourceFolder = sourceFolder
             )
 
             onProgress(0.25f, "Enregistrement du livre...")
@@ -366,6 +386,25 @@ class BookRepositoryImpl @Inject constructor(
             bookDao.clearAllCoverPaths()
         }
 
+    override suspend fun setFavorite(bookId: String, isFavorite: Boolean) =
+        bookDao.setFavorite(bookId, isFavorite)
+
+    override suspend fun getAllTags(): List<String> =
+        withContext(Dispatchers.IO) {
+            val listType = object : TypeToken<List<String>>() {}.type
+            bookDao.getAllSubjectsRaw()
+                .flatMap { raw ->
+                    try {
+                        gson.fromJson<List<String>>(raw, listType) ?: emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sortedBy { it.lowercase() }
+        }
+
     // ── Helpers — ouverture & extraction EPUB ──────────────
 
     private suspend fun openPublication(epubFile: File): Publication =
@@ -492,6 +531,38 @@ class BookRepositoryImpl @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e("BookRepo", "Erreur lors de l'extraction de la couverture du ZIP", e)
+            null
+        }
+    }
+
+    /**
+     * EPUB2 : fallback sur `<meta name="calibre:series" content="..."/>` dans le fichier OPF,
+     * pour les livres qui n'exposent pas de collection EPUB3 (`belongsTo`) reconnue par Readium.
+     */
+    private fun extractCalibreSeriesFallback(epubFile: File): Pair<String, Float?>? {
+        return try {
+            ZipFile(epubFile).use { zip ->
+                val containerEntry = zip.entries().asSequence()
+                    .find { it.name.endsWith("META-INF/container.xml") } ?: return null
+                val containerXml = zip.getInputStream(containerEntry).bufferedReader().readText()
+                val containerDoc = Jsoup.parse(containerXml, "", org.jsoup.parser.Parser.xmlParser())
+                val opfPath = containerDoc.select("rootfile").firstOrNull()?.attr("full-path")
+                    ?.takeIf { it.isNotBlank() } ?: return null
+
+                val opfEntry = zip.entries().asSequence()
+                    .find { it.name == opfPath || it.name.endsWith(opfPath) } ?: return null
+                val opfXml = zip.getInputStream(opfEntry).bufferedReader().readText()
+                val opfDoc = Jsoup.parse(opfXml, "", org.jsoup.parser.Parser.xmlParser())
+
+                val seriesName = opfDoc.select("meta[name=calibre:series]").firstOrNull()
+                    ?.attr("content")?.takeIf { it.isNotBlank() } ?: return null
+                val seriesIndex = opfDoc.select("meta[name=calibre:series_index]").firstOrNull()
+                    ?.attr("content")?.toFloatOrNull()
+
+                seriesName to seriesIndex
+            }
+        } catch (e: Exception) {
+            Log.w("BookRepo", "Erreur lecture calibre:series dans l'OPF", e)
             null
         }
     }

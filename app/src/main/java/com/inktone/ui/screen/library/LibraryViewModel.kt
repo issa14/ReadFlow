@@ -41,12 +41,19 @@ data class LibraryUiState(
     val navSubItems: Map<String, List<NavSubItem>> = emptyMap(),
     val isRebuildingCovers: Boolean = false,
     val coverRebuildProgress: Pair<Int, Int>? = null,
-    val libraryActionMessage: String? = null
+    val libraryActionMessage: String? = null,
+    val selectedTags: Set<String> = emptySet(),
+    val availableTags: List<String> = emptyList(),
+    val selectedFolder: String? = null
 )
 
+/** Libellé utilisé pour regrouper les livres dont le dossier source n'a pas pu être déterminé à l'import. */
+const val UNKNOWN_SOURCE_FOLDER_LABEL = "Origine inconnue"
+
+/** [count] négatif masque le badge numérique (utilisé pour les entrées "instance", ex. un livre favori précis). */
 data class NavSubItem(val label: String, val count: Int, val filterId: String)
 
-enum class FilterMode { ALL, BY_AUTHOR, BY_TITLE, IN_PROGRESS, READ, UNREAD }
+enum class FilterMode { ALL, BY_AUTHOR, BY_TITLE, IN_PROGRESS, READ, UNREAD, FAVORITES, SERIES, TAGS, FOLDER }
 enum class SortOrder(val label: String) { TITLE("Nom de livre"), AUTHOR("Auteur"), DATE("Date d'import"), FOLDERS("Dossiers"), RECENT("Liste des récents") }
 enum class FilterType(val label: String) { ALL("Tous"), UNREAD("Non lu"), IN_PROGRESS("En cours"), READ("Lu") }
 enum class LayoutMode { LIST, GRID, GRID_COVERS }
@@ -93,7 +100,20 @@ class LibraryViewModel @Inject constructor(
                         progressMap[book.id] = 0f
                     }
                 }
-                _uiState.update { it.copy(allBooks = books, bookProgress = progressMap, isLoading = false) }
+                val availableTags = try {
+                    bookRepository.getAllTags()
+                } catch (e: Exception) {
+                    Log.e("LibraryVM", "Error loading tags", e)
+                    emptyList()
+                }
+                _uiState.update {
+                    it.copy(
+                        allBooks = books,
+                        bookProgress = progressMap,
+                        isLoading = false,
+                        availableTags = availableTags
+                    )
+                }
                 applyFilters()
                 loadNavSubItems(books)
                 com.inktone.PerfLogger.logMemorySnapshot("Library loaded")
@@ -142,24 +162,52 @@ class LibraryViewModel @Inject constructor(
 
         val allItem = NavSubItem("Tous les livres", books.size, "all")
 
+        val favorites = books
+            .filter { it.isFavorite }
+            .sortedBy { it.title.lowercase() }
+            .map { NavSubItem(it.title, -1, "book:${it.id}") }
+
+        val byTag = books
+            .flatMap { book -> book.subjects.map { tag -> tag to book } }
+            .groupBy({ it.first }, { it.second })
+            .map { (tag, taggedBooks) -> NavSubItem(tag, taggedBooks.size, "tag:$tag") }
+            .sortedBy { it.label.lowercase() }
+
+        val byFolder = books
+            .groupBy { it.sourceFolder ?: UNKNOWN_SOURCE_FOLDER_LABEL }
+            .map { (folder, folderBooks) -> NavSubItem(folder, folderBooks.size, "folder:$folder") }
+            .sortedBy { it.label.lowercase() }
+
         _uiState.update {
             it.copy(navSubItems = mapOf(
                 "Tous les livres" to listOf(allItem),
                 "Auteur" to byAuthor,
-                "Favoris" to emptyList(),
+                "Favoris" to favorites,
                 "Séries" to emptyList(),
-                "Tags" to emptyList(),
-                "Dossiers" to emptyList()
+                "Tags" to byTag,
+                "Dossiers" to byFolder
             ))
         }
     }
 
-    /** Sélection d'un sous-élément du popup de navigation (auteur, "tous les livres"...). */
+    /** Sélection d'un sous-élément du popup de navigation (auteur, tag, dossier, "tous les livres"...). */
     fun selectNavSubItem(filterId: String) {
         when {
             filterId == "all" -> setSearchQuery("")
             filterId.startsWith("author:") -> setSearchQuery(filterId.removePrefix("author:"))
+            filterId.startsWith("tag:") -> selectSingleTag(filterId.removePrefix("tag:"))
+            filterId.startsWith("folder:") -> selectFolder(filterId.removePrefix("folder:"))
         }
+    }
+
+    private fun selectSingleTag(tag: String) {
+        _uiState.update { it.copy(selectedTags = setOf(tag)) }
+        applyFilters()
+    }
+
+    private fun selectFolder(folder: String) {
+        _uiState.update { it.copy(selectedFolder = folder) }
+        applyFilters()
     }
 
     fun toggleTheme() {
@@ -202,9 +250,44 @@ class LibraryViewModel @Inject constructor(
                     FilterType.READ -> (progressMap[book.id] ?: 0f) >= 0.99f
                 }
             }
+            .filter { book ->
+                when (s.filterMode) {
+                    FilterMode.ALL -> true
+                    FilterMode.FAVORITES -> book.isFavorite
+                    FilterMode.SERIES -> book.seriesName != null
+                    FilterMode.TAGS -> s.selectedTags.isEmpty() || book.subjects.any { it in s.selectedTags }
+                    FilterMode.FOLDER -> s.selectedFolder == null ||
+                        (book.sourceFolder ?: UNKNOWN_SOURCE_FOLDER_LABEL) == s.selectedFolder
+                    FilterMode.BY_AUTHOR, FilterMode.BY_TITLE,
+                    FilterMode.IN_PROGRESS, FilterMode.READ, FilterMode.UNREAD -> true
+                }
+            }
             .toList()
 
         _uiState.update { it.copy(books = filtered) }
+    }
+
+    /** Livres marqués comme faisant partie d'une série, regroupés par nom, triés par tome. */
+    fun booksGroupedBySeries(): Map<String, List<Book>> =
+        _uiState.value.books
+            .filter { it.seriesName != null }
+            .groupBy { it.seriesName!! }
+            .mapValues { (_, books) -> books.sortedBy { it.seriesIndex ?: Float.MAX_VALUE } }
+
+    fun toggleFavorite(bookId: String) {
+        viewModelScope.launch {
+            val book = _uiState.value.allBooks.find { it.id == bookId } ?: return@launch
+            bookRepository.setFavorite(bookId, !book.isFavorite)
+            loadBooks()
+        }
+    }
+
+    fun toggleTagFilter(tag: String) {
+        _uiState.update {
+            val newTags = if (tag in it.selectedTags) it.selectedTags - tag else it.selectedTags + tag
+            it.copy(selectedTags = newTags)
+        }
+        applyFilters()
     }
 
     fun importEpub(uri: Uri) {
@@ -222,8 +305,9 @@ class LibraryViewModel @Inject constructor(
                 }
 
                 val fileName = resolveFileName(uri) ?: "inconnu.epub"
+                val sourceFolder = resolveSourceFolder(uri)
                 context.contentResolver.openInputStream(uri)?.use { stream ->
-                    bookRepository.importEpub(stream, fileName) { progress, status ->
+                    bookRepository.importEpub(stream, fileName, sourceFolder) { progress, status ->
                         _uiState.update { it.copy(importProgress = progress, importStatus = status) }
                     }
                 } ?: throw IllegalStateException("Impossible de lire le fichier")
@@ -240,13 +324,15 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    /** Import depuis un fichier local (explorateur FilesScreen). */
-    fun importFile(inputStream: java.io.InputStream, fileName: String) {
+    /** Import depuis un fichier local (explorateur FilesScreen) — le dossier parent réel est enregistré comme source. */
+    fun importFile(file: java.io.File) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, importProgress = 0f, importStatus = "Préparation de l'import...") }
             try {
-                bookRepository.importEpub(inputStream, fileName) { progress, status ->
-                    _uiState.update { it.copy(importProgress = progress, importStatus = status) }
+                file.inputStream().use { stream ->
+                    bookRepository.importEpub(stream, file.name, file.parentFile?.name) { progress, status ->
+                        _uiState.update { it.copy(importProgress = progress, importStatus = status) }
+                    }
                 }
                 _uiState.update { it.copy(importProgress = null, importStatus = null) }
                 loadBooks()
@@ -268,8 +354,9 @@ class LibraryViewModel @Inject constructor(
                 val total = uris.size
                 uris.forEachIndexed { index, uri ->
                     val fileName = resolveFileName(uri) ?: "inconnu.epub"
+                    val sourceFolder = resolveSourceFolder(uri)
                     context.contentResolver.openInputStream(uri)?.use { stream ->
-                        bookRepository.importEpub(stream, fileName) { progress, status ->
+                        bookRepository.importEpub(stream, fileName, sourceFolder) { progress, status ->
                             val batchProgress = (index.toFloat() + progress) / total
                             _uiState.update {
                                 it.copy(
@@ -325,6 +412,21 @@ class LibraryViewModel @Inject constructor(
             loadBooks()
             _uiState.update { it.copy(libraryActionMessage = "Couvertures réinitialisées") }
         }
+    }
+
+    /**
+     * Meilleur effort pour nommer le dossier d'origine d'un document SAF : l'ID de document
+     * (`primary:Download/MesLivres/x.epub`) encode souvent le chemin relatif pour les fournisseurs
+     * de stockage local, mais pas pour tous (ex. Google Drive) — retourne `null` dans ce cas,
+     * regroupé ensuite sous [UNKNOWN_SOURCE_FOLDER_LABEL].
+     */
+    private fun resolveSourceFolder(uri: Uri): String? = try {
+        val docId = android.provider.DocumentsContract.getDocumentId(uri)
+        val path = docId.substringAfter(':')
+        val parent = path.substringBeforeLast('/', "")
+        parent.substringAfterLast('/').takeIf { it.isNotBlank() }
+    } catch (e: Exception) {
+        null
     }
 
     private fun resolveFileName(uri: Uri): String? {
