@@ -117,6 +117,18 @@ private class EpubZipIndex(private val zip: ZipFile) : Closeable {
 
 private fun openZipIndex(epubFile: File): EpubZipIndex = EpubZipIndex(ZipFile(epubFile))
 
+/**
+ * Présence de META-INF/encryption.xml : EPUB protégé par DRM (Adobe ADEPT, LCP, etc.).
+ * Vérifié avant l'ouverture Readium pour distinguer ce cas d'un fichier simplement corrompu
+ * — voir PLAN_ACTION_TOP_TIER_CLAUDECODE.md §6.1.
+ */
+private fun hasDrmEncryption(epubFile: File): Boolean =
+    try {
+        ZipFile(epubFile).use { it.getEntry("META-INF/encryption.xml") != null }
+    } catch (e: Exception) {
+        false
+    }
+
 @Singleton
 class BookRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -168,6 +180,11 @@ class BookRepositoryImpl @Inject constructor(
             val imagesDir = File(epubDir, "images").apply { mkdirs() }
             val epubFile = File(epubDir, fileName)
             epubFile.outputStream().use { inputStream.copyTo(it) }
+
+            if (hasDrmEncryption(epubFile)) {
+                epubDir.deleteRecursively()
+                throw IllegalStateException("Ce livre est protégé et ne peut pas être importé")
+            }
 
             onProgress(0.12f, "Analyse de la structure de l'EPUB...")
             val publication = try {
