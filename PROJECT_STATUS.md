@@ -1,10 +1,10 @@
 # 📊 InkTone — Suivi d'Avancement Projet
 
-> Dernière mise à jour : 2026-07-20  
-> Phase actuelle : **Plan Top-Tier — Phases 0, 1 et 2 ✅ complétées, Phase 3 à venir**  
-> Progression globale : **~95%**  
+> Dernière mise à jour : 2026-07-22  
+> Phase actuelle : **Plan Top-Tier — Phases 0 à 6 ✅ complétées ; refonte UX de l'import EPUB par lot ✅ complétée ; Phases 7 et 8 restantes (post-beta)**  
+> Progression globale : **~97%**  
 > Moteurs TTS : **Piper VITS `fr_FR-upmc-medium`** — 2 locuteurs Jessica ♀ + Pierre ♂ (local) + **Microsoft Edge TTS** (cloud, Vivienne & Henri)  
-> Tests unitaires : **130 tests, 0 échec** (+ 3 tests instrumentés sur appareil réel — migration Room et reprise de lecture)  
+> Tests unitaires : **146 tests, 0 échec** (+ 4 tests instrumentés sur appareil réel — migrations Room ×2, reprise de lecture, intégration `reading_progress`)  
 > Score audit : **8.0/10** (corrigé depuis 6.2/10)
 
 ---
@@ -241,9 +241,40 @@ Voir [`CHANGELOG.md`](./CHANGELOG.md) pour le détail complet.
 - `extractRawHtml()`, `extractAndSaveImage()`, `extractCoverHeuristic()`, `extractCalibreSeriesFallback()` ouvraient chacune leur propre `ZipFile` et rescannaient linéairement toutes les entrées à chaque appel (potentiellement 70-100+ fois par import). Remplacé par un `ZipFile` unique + `Map<String, ZipEntry>` indexée une fois, recherche O(1) avec repli par suffixe préservant le comportement existant. `getChapter()` et `regenerateCover()` en bénéficient aussi.
 - Chapitres traités avec une concurrence limitée à 4 ; `tocEntries` passe d'une liste mutable partagée (course de données potentielle) à un tableau pré-dimensionné où chaque coroutine n'écrit que son propre index ; `onProgress` agrégé sur un compteur atomique de chapitres terminés.
 - `EpubZipIndex` rendu sûr pour un accès concurrent (verrou sur les lectures brutes, traitement CPU-bound hors verrou) ; `extractAndSaveImage()` rendu atomique (vérification + écriture) pour éviter une course si deux chapitres partagent une image.
-- **Sous-problème découvert (2.2bis)**, non corrigé dans cette phase : un EPUB Calibre avec ancres de TOC percent-encodées (`%23` au lieu de `#`) échoue entièrement à résoudre sa table des matières dans `SpineIndex.kt` (code non touché par la Phase 2, bug pré-existant). Le livre s'importe sans erreur visible mais avec un contenu vide. À traiter séparément (URL-decode systématique des hrefs avant comparaison).
+- **Sous-problème découvert (2.2bis)**, non corrigé dans cette phase (corrigé juste après, voir section suivante) : un EPUB Calibre avec ancres de TOC percent-encodées (`%23` au lieu de `#`) échoue entièrement à résoudre sa table des matières dans `SpineIndex.kt` (code non touché par la Phase 2, bug pré-existant). Le livre s'importe sans erreur visible mais avec un contenu vide.
 
 **Validation** : `./gradlew assembleDebug` ✅, `testDebugUnitTest` ✅. Mesures réelles sur appareil physique — trois imports 2.1 sans pic de latence par chapitre (27 chapitres en 2,5-4,5s) ; import 2.2 déclenché avec succès sans crash, mesure chiffrée du gain spécifique de la parallélisation non complétée dans cette session (livre de test suivant révélant le bug 2.2bis avant qu'une seconde mesure valide n'ait pu être capturée).
+
+### Phase 5h — Plan Top-Tier, Phases 2.2bis, 3, 4.1, 5.1, 6 ✅ COMPLÉTÉES (2026-07-20/21)
+
+| # | Tâche | Statut | Priorité |
+|---|---|---|---|
+| 2.2bis | Correction hrefs EPUB percent-encodés dans le spine | ✅ Fait | 🟠 |
+| 2.0 | Room en `WRITE_AHEAD_LOGGING` au lieu de `TRUNCATE` | ✅ Fait | 🔴 |
+| 2.3 | Import par lot à concurrence limitée (3 imports simultanés) | ✅ Fait | 🔴 |
+| 3.1-3.5 | Adaptation à l'écran (`WindowSizeClass`, grille adaptative, plafond de largeur, top bar, pagination robuste à la rotation) | ✅ Fait | 🔴/🟠 |
+| 4.1 | Requête groupée pour la progression de la bibliothèque (N+1 → 1 requête) | ✅ Fait | 🟠 |
+| 5.1 | `ChapterPicker` en `LazyColumn`, scroll vers le chapitre courant | ✅ Fait | 🟡 |
+| 6.1 | Détection des EPUB protégés par DRM | ✅ Fait | 🟡 |
+| 6.2 | Premier vrai test d'intégration UI (`ReaderScreenTest`, scénario de reprise de lecture) | ✅ Fait | 🔴 |
+
+**Détail** : voir `CHANGELOG.md` pour le détail technique de chaque tâche. Toutes validées par `assembleDebug`/`testDebugUnitTest`/`lint` + vérification manuelle sur device physique ; 6.2 validée en plus par `connectedDebugAndroidTest` (2/2 exécutions).
+
+### Phase 5i — Import EPUB par lot : refonte UX complète ✅ COMPLÉTÉE (2026-07-22)
+
+Chantier hors plan initial, déclenché par un retour terrain direct (import perçu lent, sans retour visuel exploitable, bibliothèque bloquée pendant tout l'import) plutôt que par `PLAN_ACTION_TOP_TIER_CLAUDECODE.md`. Plan détaillé : `on-proc-de-comment-pure-lightning.md`.
+
+| Étape | Tâche | Statut |
+|---|---|---|
+| 1 | Rafraîchissement incrémental de la grille pendant l'import | ✅ Fait |
+| 2 | Bannière non bloquante + badge par livre (remplace l'overlay plein écran) | ✅ Fait |
+| 2.5 | TOC provisoire dès le premier insert (corrige le bug de TOC vide pendant l'import) | ✅ Fait |
+| 3 | Statut d'import persisté en base (`IMPORTING`/`READY`/`FAILED`), migration Room 16→17 | ✅ Fait |
+| 4 | Migration de l'exécution vers WorkManager + notification persistante | ✅ Fait |
+
+**Détail** : voir `CHANGELOG.md` — 2026-07-22. Points notables : bug de clé dupliquée `LazyVerticalGrid` découvert et corrigé pendant la validation manuelle (dédoublonnage par id) ; crash `foregroundServiceType` découvert et corrigé (déclaration manquante dans le manifeste fusionné de `SystemForegroundService`) ; un bug de stub MockK (nombre d'arguments incorrect, masquait silencieusement la logique testée) découvert et corrigé dans les tests de `ImportBooksUseCase`.
+
+**Connu, non traité** : réimport en double possible si le process meurt en plein import et que WorkManager relance automatiquement le lot au redémarrage (pas de détection de doublon par contenu dans l'app — limite préexistante, pas une régression). Le second `bookDao.insert()` désormais redondant dans `BookRepositoryImpl.importEpub()` (depuis le TOC provisoire de l'étape 2.5) n'a pas été supprimé — dette technique séparée, actée explicitement.
 
 ### 🔄 Historique TTS : Kokoro → Piper
 
@@ -289,7 +320,21 @@ Le modèle **Kokoro int8 multi-langue** (150 Mo, 53 locuteurs) a été testé pu
 | Gap inter-phrases | 0ms | 0ms (gapless) |
 | Taille APK (debug) | < 200 Mo | **120 Mo** |
 | Taille modèle ONNX | < 80 Mo | **73 Mo** (Piper UPMC) |
-| Tests unitaires | > 70% (domain) | **111 tests** (0 échec) |
+| Tests unitaires | > 70% (domain) | **146 tests** (0 échec) |
+
+---
+
+## 📌 Reste à faire
+
+**Du plan `PLAN_ACTION_TOP_TIER_CLAUDECODE.md`** (Phases 0-6 complétées) :
+- **Phase 4.2** 🟢 — pagination de `getAllBooks()` (LIMIT/OFFSET ou `PagingSource`). Explicitement différée : pas urgent avec le volume actuel de testeurs, à réévaluer avec les données réelles de la beta plutôt que sur-ingénierer maintenant.
+- **Phase 7** 🟡 — synchronisation périodique en arrière-plan (`WorkManager`, déclenchement automatique du `SyncManager.backup()` en plus du déclenchement manuel existant). Dépend de la Phase 1 (déjà faite). Volontairement après une première beta fermée.
+- **Phase 8** 🟡 — honnêteté produit : documenter que le surlignage mot-à-mot est une interpolation par proportion de caractères (§8.1, quasi gratuit — juste de la doc) ; pondération phonétique de l'interpolation (§8.2, optionnel, amélioration cosmétique).
+
+**Dette technique actée explicitement, non bloquante** :
+- Le second `bookDao.insert()` dans `BookRepositoryImpl.importEpub()` est redondant depuis que le TOC provisoire (§2.5 du plan import EPUB) est correct dès le premier insert — non supprimé, nécessite de vérifier qu'aucun autre champ (ex. `coverPath`) ne diverge entre les deux inserts avant de le faire en toute sécurité.
+- Réimport en double possible si le process meurt en plein import par lot et que WorkManager relance automatiquement le même lot au redémarrage — aucune détection de doublon par contenu/nom de fichier n'existe dans l'app aujourd'hui (limite déjà partagée avec un double-tap manuel sur « importer », pas une régression introduite par la Phase 5i).
+- `R3` (voir Risques ci-dessous) : Readium sur EPUB3 complexes, à tester avec un corpus plus large.
 
 ---
 

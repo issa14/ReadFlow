@@ -9,6 +9,52 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### 2026-07-22 — Import EPUB par lot : refonte UX complète (branche `main`)
+
+Chantier en 4 étapes (+ 2.5), déclenché par un retour terrain : import perçu comme lent, sans retour visuel exploitable, bibliothèque bloquée pendant tout l'import — voir plan `on-proc-de-comment-pure-lightning.md`. Bug de TOC vide pendant l'import découvert en marge en testant la Phase 5.1.
+
+#### Added
+
+- **`ImportBooksUseCase`** — fan-out de l'import par lot (concurrence limitée à 3, id généré par livre avant l'appel) extrait de `LibraryViewModel`, réutilisable par `EpubImportWorker`.
+- **`BookImportStatus`** (`IMPORTING`/`READY`/`FAILED`) — nouveau champ `status` sur `Book`/`BookEntity` (migration Room `16→17`), convention string brute alignée sur `ReadingProgress.source`. `BookRepositoryImpl.importEpub()` marque `IMPORTING` au premier insert, `READY` à la fin, `FAILED` sur toute exception après le premier insert (garde-fou : aucun échec n'était auparavant marqué en base).
+- **`EpubImportWorker`** — exécute l'import via WorkManager (canal de notification dédié `inktone_import`, `foregroundServiceType="dataSync"`) : l'import survit désormais à la navigation, à la mise en arrière-plan et à un redémarrage du process, contrairement à l'ancienne exécution dans `viewModelScope`.
+- **Wiring Hilt + WorkManager** : `InkToneApplication` implémente `Configuration.Provider`, `HiltWorkerFactory` injecté ; `WorkManager` lui-même injecté via Hilt (`AppModule`) plutôt qu'obtenu statiquement, pour rester testable en JVM pur.
+- **Récupération des imports orphelins** au lancement (`BookRepository.recoverOrphanedImports()`) — un livre resté en `IMPORTING` sans worker actif est marqué `FAILED` (retry manuel, pas de relance automatique — décision actée avec l'utilisateur).
+
+#### Changed
+
+- **Bibliothèque non bloquante pendant l'import** — l'overlay plein écran (`LibraryScreen.kt`) est remplacé par une bannière compacte (`ImportBanner`) et un badge discret par jaquette en cours d'import (`BookCover.isImporting`) ; navigation et lecture restent possibles pendant tout l'import, y compris tap sur un livre encore en cours (accès direct autorisé, décision actée).
+- **Grille remplie livre par livre** — `LibraryViewModel` fait apparaître chaque livre dès la fin de son propre import (dédoublonné par id contre le rafraîchissement périodique concurrent), au lieu d'attendre la fin du lot entier.
+- **`LibraryViewModel.importBooks()`** devient un mince wrapper : persistance des permissions SAF puis `enqueueUniqueWork` — l'état affiché est désormais dérivé de `WorkInfo` (`observeImportWork()`), pas mis à jour directement.
+
+#### Fixed
+
+- **TOC vide pendant l'import** — `BookRepositoryImpl.importEpub()` insérait le livre avec une table des matières vide avant le traitement des chapitres ; un livre ouvert dans cette fenêtre affichait une TOC vide alors que son premier chapitre était déjà lisible. Le TOC provisoire (titres/niveaux depuis `flatToc`, déjà connu avant tout traitement de contenu) est désormais inséré dès le premier enregistrement.
+- **Clé dupliquée `LazyVerticalGrid`** (`IllegalArgumentException: Key ... was already used`) — un livre déjà repris par le rafraîchissement périodique se faisait ré-ajouter en double une fois son propre import terminé ; dédoublonnage par id ajouté.
+- **Crash `IllegalArgumentException: foregroundServiceType ... is not a subset ...`** — le service interne de WorkManager (`SystemForegroundService`) ne déclarait pas `foregroundServiceType="dataSync"` dans le manifeste fusionné ; déclaration explicite ajoutée.
+- **`LibraryViewModelTest.awaitLoaded()` flaky** — `isLoading` passe à `false` avant que `loadNavSubItems()` (écriture d'état séparée) n'ait fini de peupler `navSubItems`, causant un `NoSuchElementException` intermittent sur `getValue("Tags")`. Le helper attend désormais aussi `navSubItems.isNotEmpty()`.
+
+**Validation** : `assembleDebug`/`testDebugUnitTest`/`lint` ✅ (+ 2 tests instrumentés de migration Room sur device), vérification manuelle sur device à chaque étape (bannière/badges, TOC pendant import, notification WorkManager visible en arrière-plan, plus de crash).
+
+**Connu, non traité** : si le process meurt en plein milieu d'un import, WorkManager peut relancer automatiquement le même lot au redémarrage, ce qui pourrait réimporter en double des livres déjà terminés dans la tentative interrompue (aucune détection de doublon par contenu n'existe dans l'app aujourd'hui — limite déjà partagée avec un double-tap manuel sur « importer »).
+
+### 2026-07-21 — Plan Top-Tier, Phase 6 : détection DRM + premier test d'intégration UI (branche `main`)
+
+- **6.1** — `BookRepositoryImpl.importEpub()` détecte la présence de `META-INF/encryption.xml` avant l'ouverture Readium et remonte *"Ce livre est protégé et ne peut pas être importé"* au lieu du message générique "fichier corrompu".
+- **6.2** — `ReaderScreenTest.kt` (placeholder vide) remplacé par un test Compose réel couvrant le scénario de reprise de lecture (§1.8) : `ReaderViewModel` construit avec ses 17 dépendances mockées (MockK), injecté directement via le paramètre `viewModel` de `ReaderScreen` (pas besoin de Hilt de test). Ajout de `mockk-android` et d'exclusions `packaging.resources` pour un conflit de merge causé par `junit-jupiter` tiré en transitif.
+
+**Validation** : `connectedDebugAndroidTest` (2/2 exécutions consécutives sur device physique).
+
+### 2026-07-20/21 — Plan Top-Tier, Phases 2.0/2.3, 3, 4.1, 5.1 (branche `main`)
+
+- **2.0** — Room passe de `TRUNCATE` à `WRITE_AHEAD_LOGGING` (coût de commit `TRUNCATE` croissant avec la taille du fichier `.db` pendant un import de centaines de livres).
+- **2.3** — `LibraryViewModel.importBooks()` traite le lot à concurrence limitée (3 imports simultanés) au lieu d'un `forEachIndexed` séquentiel.
+- **3** — Adaptation à l'écran : `WindowSizeClass` calculée une fois dans `MainActivity` (`LocalWindowSizeClass`) ; grille de bibliothèque en `GridCells.Adaptive` ; plafond de largeur du texte en lecture (~65-75 caractères/ligne, bug d'ordre des modificateurs corrigé en cours de route) ; `ReaderTopBar` réduite à retour + titre, actions déplacées vers `UnifiedControlPanel` ; pagination ancrée sur l'index de phrase actif, robuste à la rotation.
+- **4.1** — `LibraryViewModel.loadBooks()` faisait une requête `getProgress(bookId)` par livre (N+1) ; remplacée par `ReadingProgressDao.getProgressForBooks()` en une seule requête `WHERE bookId IN (:ids)`.
+- **5.1** — `ChapterPicker` (table des matières) passe de `Column`/`forEach`/`verticalScroll` à `LazyColumn` + scroll automatique vers le chapitre courant à l'ouverture.
+
+**Validation** : `assembleDebug`/`testDebugUnitTest`/`lint` ✅ pour chaque tâche, vérifications manuelles sur device.
+
 ### 2026-07-20 — Plan Top-Tier, Phase 2.2bis : hrefs EPUB percent-encodés non résolus (branche `main`)
 
 Sous-tâche 2.2bis de [`PLAN_ACTION_TOP_TIER_CLAUDECODE.md`](./PLAN_ACTION_TOP_TIER_CLAUDECODE.md) — bug pré-existant découvert en testant la Phase 2 sur appareil, sans rapport avec elle (`SpineIndex.kt` non touché par 2.1/2.2).

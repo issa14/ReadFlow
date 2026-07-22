@@ -37,7 +37,7 @@
 
 Coût faible, risque d'ignorer disproportionné. À faire en premier, avant même la Phase 1, parce que ces deux tâches conditionnent la capacité à publier et à savoir ce qui casse chez les testeurs.
 
-### 0.1 — 🔴 Supprimer `MANAGE_EXTERNAL_STORAGE` et l'écran associé
+### 0.1 — 🔴 Supprimer `MANAGE_EXTERNAL_STORAGE` et l'écran associé ✅ Fait
 
 **Problème** : `FilesScreen.kt` (accessible depuis `LibraryScreen.kt`) demande la permission "accès à tous les fichiers", redondante avec le SAF déjà utilisé ailleurs pour l'import. Risque de rejet/suspension Play Store.
 
@@ -52,7 +52,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 0.2 — 🔴 Intégrer un système de crash reporting
+### 0.2 — 🔴 Intégrer un système de crash reporting ✅ Fait
 
 **Problème** : aucun SDK de télémétrie de crash dans le dépôt (vérifié : Crashlytics, Sentry, Bugsnag, ACRA — aucun présent). Une beta sans ça ne remonte rien d'exploitable.
 
@@ -71,7 +71,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 **Dépend de** : rien (peut démarrer juste après la Phase 0). **Bloque** : Phase 3.6 (pagination robuste à la rotation) et Phase 6.2 (test d'intégration) en dépendent partiellement.
 
-### 1.1 — 🔴 Concevoir le schéma unifié de position de lecture
+### 1.1 — 🔴 Concevoir le schéma unifié de position de lecture ✅ Fait
 
 **À faire avant d'écrire du code** : documenter dans `architecture.md` la nouvelle source de vérité unique :
 - Une seule table (garder `reading_progress` comme base, elle a le meilleur design) avec les colonnes : `bookId`, `chapterIndex`, `sentenceIndex`, `characterOffset`, `totalProgressFraction`, `updatedAt`, `source` (enum : `TTS` / `MANUAL_SCROLL` — utile pour debug et pour ne pas laisser une position TTS obsolète écraser une lecture manuelle plus récente, ou l'inverse).
@@ -82,7 +82,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 1.2 — 🔴 Migration Room : fusionner `progress` et `reading_progress`
+### 1.2 — 🔴 Migration Room : fusionner `progress` et `reading_progress` ✅ Fait
 
 **À faire** :
 - Bump de version Room, `Migration` explicite (pas de `fallbackToDestructiveMigration`) qui :
@@ -96,7 +96,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 1.3 — 🔴 Pondération réelle de la progression par longueur de contenu
+### 1.3 — 🔴 Pondération réelle de la progression par longueur de contenu ✅ Fait
 
 **Problème initial** : `(chapterIndex + sentenceIndex/totalSentences) / totalChapters` traite chaque chapitre comme équivalent, sans lien avec sa longueur réelle.
 
@@ -109,7 +109,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 1.4 — 🔴 Découpler la sauvegarde de position du TTS (lecture silencieuse)
+### 1.4 — 🔴 Découpler la sauvegarde de position du TTS (lecture silencieuse) ✅ Fait
 
 **Problème** : la position n'est aujourd'hui persistée que via `orchestrator.playbackState.collect{}`, donc jamais pendant une lecture silencieuse (scroll sans audio).
 
@@ -123,7 +123,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 1.5 — 🔴 Unifier la source de vérité affichée (`activeIdx`)
+### 1.5 — 🔴 Unifier la source de vérité affichée (`activeIdx`) ✅ Fait
 
 **Problème** : `ReaderContent.kt` utilise `playbackState.activeSentenceIndex` (qui vaut 0 par défaut) au lieu de la position restaurée par `ReaderViewModel`.
 
@@ -135,7 +135,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 1.6 — 🔴 Corriger `startFrom = 0` codé en dur
+### 1.6 — 🔴 Corriger `startFrom = 0` codé en dur ✅ Fait
 
 **À faire** :
 - Dans `ReaderViewModel.play()`, remplacer `startFrom = 0` par `startFrom = s.currentSentenceIndex`.
@@ -146,7 +146,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 1.7 — 🟡 Réutiliser ou retirer proprement `characterOffset`
+### 1.7 — 🟡 Réutiliser ou retirer proprement `characterOffset` ✅ Fait
 
 **À faire** : une fois 1.2-1.6 en place, décider explicitement :
 - Soit l'utiliser pour un positionnement infra-phrase (utile si un mode de rendu plus fin que "phrase" est envisagé) — dans ce cas le brancher réellement dans `ResolveReadingPositionUseCase`.
@@ -156,7 +156,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 1.8 — 🔴 Test de non-régression dédié à la reprise de lecture
+### 1.8 — 🔴 Test de non-régression dédié à la reprise de lecture ✅ Fait
 
 **À faire** :
 - Test d'intégration (voir aussi Phase 6.2) qui simule : ouverture → scroll manuel sans audio → simulation de fermeture de process → réouverture → assertion sur chapitre/phrase/scroll restaurés.
@@ -180,7 +180,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 2.0 — 🔴 Passer Room en mode journal WAL
+### 2.0 — 🔴 Passer Room en mode journal WAL ✅ Fait
 
 **À faire** :
 - `AppModule.kt` : remplacer `.setJournalMode(RoomDatabase.JournalMode.TRUNCATE)` par `.setJournalMode(RoomDatabase.JournalMode.WAL)` (ou retirer l'appel, WAL étant le comportement par défaut recommandé pour ce type de charge).
@@ -191,7 +191,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 2.1 — 🔴 Ouvrir le ZIP une seule fois par import
+### 2.1 — 🔴 Ouvrir le ZIP une seule fois par import ✅ Fait
 
 **Problème** : `extractRawHtml()` et `extractAndSaveImage()` rouvrent `ZipFile(epubFile)` et scannent linéairement toutes les entrées à chaque appel — potentiellement 70-100+ ouvertures/scans redondants par import, démultiplié par le nombre de livres en cas d'import par lot.
 
@@ -205,7 +205,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 2.2 — 🟠 Paralléliser le traitement des chapitres (au sein d'un même livre)
+### 2.2 — 🟠 Paralléliser le traitement des chapitres (au sein d'un même livre) ✅ Fait
 
 **À faire** :
 - Rendre l'indexation des blocs riches indépendante du compteur global partagé entre chapitres (actuellement `richBlocks.size` sert d'offset cumulatif dans la boucle séquentielle — à revoir pour un calcul local par chapitre, recombiné après coup).
@@ -216,7 +216,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 2.3 — 🔴 Paralléliser l'import par lot (plusieurs livres à la fois)
+### 2.3 — 🔴 Paralléliser l'import par lot (plusieurs livres à la fois) ✅ Fait
 
 **Problème** : `LibraryViewModel.importBooks(uris)` traite les fichiers en série stricte, sans concurrence, indépendamment de la vitesse de chaque import individuel.
 
@@ -234,7 +234,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 **Dépend de** : Phase 1.5 pour la tâche 3.6 (pagination), sinon indépendante.
 
-### 3.1 — 🔴 Introduire une couche `WindowSizeClass`
+### 3.1 — 🔴 Introduire une couche `WindowSizeClass` ✅ Fait
 
 **À faire** :
 - Ajouter la dépendance adaptive Compose Material 3 correspondante.
@@ -245,7 +245,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 3.2 — 🟠 Grille de bibliothèque adaptative
+### 3.2 — 🟠 Grille de bibliothèque adaptative ✅ Fait
 
 **À faire** : remplacer `GridCells.Fixed(3)` par `GridCells.Adaptive(minSize = ...)` dans `LibraryScreen.kt`, avec une taille minimale de cellule choisie pour rester cohérente avec le design actuel des jaquettes.
 
@@ -253,7 +253,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 3.3 — 🔴 Plafonner la largeur de texte en lecture
+### 3.3 — 🔴 Plafonner la largeur de texte en lecture ✅ Fait
 
 **À faire** : dans `ReaderContent.kt`, contraindre la largeur effective du bloc de texte (ex. ~65-75 caractères par ligne au lieu de la largeur d'écran moins marge fixe), avec centrage et marges plus généreuses sur grand écran. `horizontalMarginDp` reste un réglage utilisateur, mais s'applique en plus de ce plafond, pas à sa place.
 
@@ -261,7 +261,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 3.4 — 🔴 Alléger la top bar du lecteur
+### 3.4 — 🔴 Alléger la top bar du lecteur ✅ Fait
 
 **À faire** :
 - `ReaderTopBar.kt` : ne garder que retour + un point d'entrée unique (menu) vers les actions secondaires actuellement en icônes séparées (mode lecture, recherche, signets, TOC).
@@ -272,7 +272,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 3.5 — 🟡 Pagination robuste à la rotation d'écran
+### 3.5 — 🟡 Pagination robuste à la rotation d'écran ✅ Fait
 
 **Dépend de 1.5.**
 
@@ -286,7 +286,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ## PHASE 4 — Bibliothèque à l'échelle
 
-### 4.1 — 🟠 Requête groupée pour la progression de la bibliothèque
+### 4.1 — 🟠 Requête groupée pour la progression de la bibliothèque ✅ Fait
 
 **À faire** : remplacer la boucle `books.forEach { getProgress(book.id) }` dans `LibraryViewModel.loadBooks()` par une requête unique (`SELECT * FROM reading_progress WHERE bookId IN (:ids)`, avec le nouveau schéma unifié de la Phase 1), puis construction de la map en mémoire.
 
@@ -302,7 +302,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ## PHASE 5 — Table des matières
 
-### 5.1 — 🟡 `LazyColumn` + scroll vers le chapitre courant
+### 5.1 — 🟡 `LazyColumn` + scroll vers le chapitre courant ✅ Fait
 
 **À faire** :
 - `ChapterPicker` (`ReaderTopBar.kt`) : remplacer `Column` + `forEach` + `verticalScroll` par `LazyColumn` + `items(tocEntries, key = { it.index })`.
@@ -314,7 +314,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ## PHASE 6 — Robustesse & qualité
 
-### 6.1 — 🟡 Détection des EPUB protégés par DRM
+### 6.1 — 🟡 Détection des EPUB protégés par DRM ✅ Fait
 
 **À faire** : dans `BookRepositoryImpl.importEpub()`, détecter la présence de DRM (ex. présence de `META-INF/encryption.xml` dans l'archive, ou échec spécifique de Readium identifiable) et remonter un message dédié ("Ce livre est protégé et ne peut pas être importé") plutôt que le message générique "fichier corrompu".
 
@@ -322,7 +322,7 @@ Coût faible, risque d'ignorer disproportionné. À faire en premier, avant mêm
 
 ---
 
-### 6.2 — 🔴 Premier vrai test d'intégration UI
+### 6.2 — 🔴 Premier vrai test d'intégration UI ✅ Fait
 
 **Problème** : le seul test instrumenté du dépôt (`ReaderScreenTest.kt`) est un placeholder vide.
 
